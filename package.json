@@ -1,0 +1,20 @@
+{
+  "name": "epistery-scan",
+  "version": "1.0.0",
+  "description": "epistery-scan provides cross chain lookup and monitoring for i",
+  "homepage": "https://github.com/metric-im/epistery-scan#readme",
+  "bugs": {
+    "url": "https://github.com/metric-im/epistery-scan/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/metric-im/epistery-scan.git"
+  },
+  "license": "UNLICENSED",
+  "author": "Michael Sprague",
+  "type": "module",
+  "main": "index.mjs",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  }
+}
