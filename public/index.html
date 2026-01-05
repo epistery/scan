@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Epistery Scan - Blockchain Explorer</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+      background: #f5f5f5;
+      color: #333;
+    }
+
+    .header {
+      background: #fff;
+      border-bottom: 1px solid #e0e0e0;
+      padding: 1rem 2rem;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    }
+
+    .header h1 {
+      font-size: 1.5rem;
+      color: #2c3e50;
+    }
+
+    .header p {
+      font-size: 0.9rem;
+      color: #666;
+      margin-top: 0.25rem;
+    }
+
+    .container {
+      max-width: 1200px;
+      margin: 2rem auto;
+      padding: 0 1rem;
+    }
+
+    .search-box {
+      background: #fff;
+      padding: 2rem;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      margin-bottom: 2rem;
+    }
+
+    .search-box h2 {
+      margin-bottom: 1rem;
+      font-size: 1.2rem;
+      color: #2c3e50;
+    }
+
+    .search-input-group {
+      display: flex;
+      gap: 0.5rem;
+    }
+
+    .search-input {
+      flex: 1;
+      padding: 0.75rem;
+      border: 2px solid #e0e0e0;
+      border-radius: 4px;
+      font-size: 1rem;
+      transition: border-color 0.2s;
+    }
+
+    .search-input:focus {
+      outline: none;
+      border-color: #3498db;
+    }
+
+    .search-button {
+      padding: 0.75rem 2rem;
+      background: #3498db;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      font-size: 1rem;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    .search-button:hover {
+      background: #2980b9;
+    }
+
+    .results {
+      background: #fff;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      overflow: hidden;
+    }
+
+    .tabs {
+      display: flex;
+      border-bottom: 2px solid #e0e0e0;
+    }
+
+    .tab {
+      padding: 1rem 1.5rem;
+      background: transparent;
+      border: none;
+      cursor: pointer;
+      font-size: 1rem;
+      color: #666;
+      transition: all 0.2s;
+      border-bottom: 3px solid transparent;
+    }
+
+    .tab:hover {
+      color: #3498db;
+    }
+
+    .tab.active {
+      color: #3498db;
+      border-bottom-color: #3498db;
+    }
+
+    .tab-content {
+      display: none;
+      padding: 2rem;
+    }
+
+    .tab-content.active {
+      display: block;
+    }
+
+    .entity-card {
+      border: 1px solid #e0e0e0;
+      border-radius: 4px;
+      padding: 1rem;
+      margin-bottom: 1rem;
+    }
+
+    .entity-card h3 {
+      font-size: 1.1rem;
+      margin-bottom: 0.5rem;
+      color: #2c3e50;
+    }
+
+    .entity-card .address {
+      font-family: monospace;
+      color: #3498db;
+      word-break: break-all;
+      font-size: 0.9rem;
+      margin-bottom: 0.5rem;
+    }
+
+    .entity-card .meta {
+      display: flex;
+      gap: 1rem;
+      flex-wrap: wrap;
+      font-size: 0.85rem;
+      color: #666;
+    }
+
+    .event-row {
+      border-bottom: 1px solid #e0e0e0;
+      padding: 1rem 0;
+    }
+
+    .event-row:last-child {
+      border-bottom: none;
+    }
+
+    .event-row .event-type {
+      font-weight: 600;
+      color: #2c3e50;
+      margin-bottom: 0.25rem;
+    }
+
+    .event-row .event-time {
+      font-size: 0.85rem;
+      color: #666;
+      margin-bottom: 0.5rem;
+    }
+
+    .event-row .event-data {
+      font-family: monospace;
+      font-size: 0.85rem;
+      color: #555;
+    }
+
+    .empty-state {
+      text-align: center;
+      padding: 3rem;
+      color: #999;
+    }
+
+    .loading {
+      text-align: center;
+      padding: 2rem;
+      color: #666;
+    }
+
+    .badge {
+      display: inline-block;
+      padding: 0.25rem 0.5rem;
+      border-radius: 3px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+
+    .badge.agent { background: #e3f2fd; color: #1976d2; }
+    .badge.identity { background: #f3e5f5; color: #7b1fa2; }
+    .badge.campaign { background: #fff3e0; color: #e65100; }
+    .badge.ethereum { background: #eceff1; color: #455a64; }
+    .badge.polygon { background: #f3e5f5; color: #8e24aa; }
+
+    .suggestion {
+      background: #fff3cd;
+      border: 1px solid #ffc107;
+      border-radius: 4px;
+      padding: 1rem;
+      margin: 1rem 0;
+    }
+
+    .suggestion button {
+      margin-top: 0.5rem;
+      padding: 0.5rem 1rem;
+      background: #ffc107;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>Epistery Scan</h1>
+    <p>Cross-chain blockchain explorer for the Epistery ecosystem</p>
+  </div>
+
+  <div class="container">
+    <div class="search-box">
+      <h2>Search Blockchain</h2>
+      <div class="search-input-group">
+        <input
+          type="text"
+          class="search-input"
+          id="searchInput"
+          placeholder="Search by Address or Transaction Hash (0x...)"
+        >
+        <button class="search-button" onclick="search()">Search</button>
+      </div>
+    </div>
+
+    <div class="results" id="results" style="display: none;">
+      <div class="tabs">
+        <button class="tab active" data-tab="overview">Overview</button>
+        <button class="tab" data-tab="transactions">Transactions</button>
+        <button class="tab" data-tab="events">Events</button>
+        <button class="tab" data-tab="data">Object Data</button>
+      </div>
+
+      <div class="tab-content active" id="overview">
+        <div class="loading">Loading...</div>
+      </div>
+
+      <div class="tab-content" id="transactions">
+        <div class="empty-state">No transactions found</div>
+      </div>
+
+      <div class="tab-content" id="events">
+        <div class="empty-state">No events found</div>
+      </div>
+
+      <div class="tab-content" id="data">
+        <div class="empty-state">No data found</div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Tab switching
+    document.querySelectorAll('.tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+
+        tab.classList.add('active');
+        document.getElementById(tab.dataset.tab).classList.add('active');
+      });
+    });
+
+    // Search on Enter key
+    document.getElementById('searchInput').addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') search();
+    });
+
+    async function search() {
+      const query = document.getElementById('searchInput').value.trim();
+      if (!query) return;
+
+      document.getElementById('results').style.display = 'block';
+      showLoading();
+
+      try {
+        const response = await fetch(`/api/search?q=${encodeURIComponent(query)}`);
+        const data = await response.json();
+
+        displayResults(data);
+      } catch (error) {
+        showError('Search failed: ' + error.message);
+      }
+    }
+
+    function showLoading() {
+      document.getElementById('overview').innerHTML = '<div class="loading">Loading...</div>';
+      document.getElementById('transactions').innerHTML = '<div class="empty-state">No transactions found</div>';
+      document.getElementById('events').innerHTML = '<div class="empty-state">No events found</div>';
+      document.getElementById('data').innerHTML = '<div class="empty-state">No data found</div>';
+    }
+
+    function showError(message) {
+      document.getElementById('overview').innerHTML = `<div class="empty-state">${message}</div>`;
+    }
+
+    async function displayResults(data) {
+      // Display entities
+      if (data.entities && data.entities.length > 0) {
+        displayEntities(data.entities);
+
+        // Load events for the first entity
+        const entity = data.entities[0];
+        loadEvents(entity.address);
+      } else if (data.suggestion) {
+        displaySuggestion(data.suggestion);
+      } else {
+        document.getElementById('overview').innerHTML = '<div class="empty-state">No results found</div>';
+      }
+
+      // Display transactions
+      if (data.transactions && data.transactions.length > 0) {
+        displayTransactions(data.transactions);
+      }
+    }
+
+    function displayEntities(entities) {
+      const html = entities.map(entity => `
+        <div class="entity-card">
+          <h3>
+            <span class="badge ${entity.type.toLowerCase()}">${entity.type}</span>
+            <span class="badge ${entity.chain}">${entity.chain}</span>
+          </h3>
+          <div class="address">${entity.address}</div>
+          <div class="meta">
+            ${entity.metadata?.domain ? `<span>Domain: ${entity.metadata.domain}</span>` : ''}
+            ${entity.metadata?.owner ? `<span>Owner: ${entity.metadata.owner}</span>` : ''}
+            ${entity._created ? `<span>First seen: ${new Date(entity._created).toLocaleString()}</span>` : ''}
+          </div>
+        </div>
+      `).join('');
+
+      document.getElementById('overview').innerHTML = html;
+    }
+
+    function displaySuggestion(suggestion) {
+      const html = `
+        <div class="suggestion">
+          <strong>${suggestion.message}</strong>
+          <br>
+          <button onclick="addMonitor('${suggestion.value}')">Monitor this address</button>
+        </div>
+      `;
+      document.getElementById('overview').innerHTML = html;
+    }
+
+    async function addMonitor(address) {
+      const type = prompt('Enter contract type (Agent, IdentityContract, or CampaignWallet):');
+      if (!type) return;
+
+      const chain = prompt('Enter chain (ethereum, polygon):', 'ethereum');
+      if (!chain) return;
+
+      try {
+        const response = await fetch('/api/monitor', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ address, chain, type })
+        });
+
+        const result = await response.json();
+        alert(result.message || 'Monitor added successfully!');
+
+        // Search again to show the new entity
+        search();
+      } catch (error) {
+        alert('Failed to add monitor: ' + error.message);
+      }
+    }
+
+    async function loadEvents(address) {
+      try {
+        const response = await fetch(`/api/events?entityId=${address}&limit=50`);
+        const data = await response.json();
+
+        if (data.events && data.events.length > 0) {
+          displayEvents(data.events);
+        }
+
+        // Load transactions from events
+        const transactions = data.events.filter(e => e.data?.transactionHash);
+        if (transactions.length > 0) {
+          displayTransactions(transactions);
+        }
+      } catch (error) {
+        console.error('Failed to load events:', error);
+      }
+    }
+
+    function displayEvents(events) {
+      const html = events.map(event => `
+        <div class="event-row">
+          <div class="event-type">${event.type}</div>
+          <div class="event-time">${new Date(event.timestamp).toLocaleString()}</div>
+          <div class="event-data">${JSON.stringify(event.data, null, 2)}</div>
+        </div>
+      `).join('');
+
+      document.getElementById('events').innerHTML = html || '<div class="empty-state">No events found</div>';
+    }
+
+    function displayTransactions(transactions) {
+      const html = transactions.map(tx => `
+        <div class="event-row">
+          <div class="event-type">Transaction</div>
+          <div class="event-time">${new Date(tx.timestamp).toLocaleString()}</div>
+          <div class="event-data">
+            Hash: ${tx.data?.transactionHash || 'N/A'}<br>
+            Block: ${tx.data?.blockNumber || 'N/A'}
+          </div>
+        </div>
+      `).join('');
+
+      document.getElementById('transactions').innerHTML = html || '<div class="empty-state">No transactions found</div>';
+    }
+  </script>
+</body>
+</html>

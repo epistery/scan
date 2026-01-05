@@ -7,3 +7,7 @@ test_modules
 package-lock\.json
 .npmrc
 .env
+.epistery/
+*.log
+.DS_Store
+config.json
