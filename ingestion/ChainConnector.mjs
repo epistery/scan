@@ -39,18 +39,35 @@ export default class ChainConnector {
 
   /**
    * Query events from a contract
+   * Chunks large block ranges to avoid RPC timeouts
    */
   async queryEvents(address, eventFilter, fromBlock, toBlock) {
     const contract = new ethers.Contract(address, ['event ' + eventFilter], this.provider);
     const filter = contract.filters[eventFilter.split('(')[0]]();
 
-    const events = await contract.queryFilter(
-      filter,
-      fromBlock || 0,
-      toBlock || 'latest'
-    );
+    const chunkSize = 10000; // Query 10k blocks at a time
+    const from = fromBlock || 0;
+    const to = toBlock || await this.getCurrentBlock();
 
-    return events.map(event => this.normalizeEvent(event));
+    const allEvents = [];
+
+    for (let start = from; start <= to; start += chunkSize) {
+      const end = Math.min(start + chunkSize - 1, to);
+
+      try {
+        const events = await contract.queryFilter(filter, start, end);
+        allEvents.push(...events);
+
+        if (events.length > 0) {
+          console.log(`[connector:${this.chain}] Found ${events.length} events in blocks ${start}-${end}`);
+        }
+      } catch (error) {
+        console.error(`[connector:${this.chain}] Error querying blocks ${start}-${end}:`, error.message);
+        // Continue with next chunk
+      }
+    }
+
+    return allEvents.map(event => this.normalizeEvent(event));
   }
 
   /**

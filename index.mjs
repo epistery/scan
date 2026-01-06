@@ -29,6 +29,7 @@ class EpisteryScan {
     this.connector = null;
     this.database = null;
     this.ingestion = null;
+    this.config = new Config();
   }
 
   async initialize() {
@@ -56,22 +57,22 @@ class EpisteryScan {
     const ingestionConfig = {
       chains: {
         ethereum: {
-          enabled: config.get('chains.ethereum.enabled') !== false,
-          rpcUrl: config.get('chains.ethereum.rpcUrl') || 'https://eth.llamarpc.com'
+          enabled: rootConfigData.chains?.ethereum?.enabled !== false,
+          rpcUrl: rootConfigData.chains?.ethereum?.rpcUrl || 'https://eth.llamarpc.com'
         },
         polygon: {
-          enabled: config.get('chains.polygon.enabled') || false,
-          rpcUrl: config.get('chains.polygon.rpcUrl') || 'https://polygon-rpc.com'
+          enabled: rootConfigData.chains?.polygon?.enabled || false,
+          rpcUrl: rootConfigData.chains?.polygon?.rpcUrl || 'https://polygon-rpc.com'
         }
       },
-      pollInterval: config.get('pollInterval') || 60000
+      pollInterval: rootConfigData.pollInterval || 60000
     };
 
     this.ingestion = new IngestionManager(this.database, ingestionConfig);
     await this.ingestion.initialize();
 
     // Start ingestion polling
-    if (config.get('ingestion.autostart') !== false) {
+    if (rootConfigData.ingestion?.autostart !== false) {
       this.ingestion.start();
     }
 
