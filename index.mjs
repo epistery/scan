@@ -5,6 +5,7 @@ import cookieParser from 'cookie-parser';
 import cors from 'cors';
 import morgan from 'morgan';
 import mongodb from 'mongodb';
+import { readFileSync } from 'fs';
 import { Config } from 'epistery';
 import { Certify } from '@metric-im/administrate';
 import Componentry from '@metric-im/componentry';
@@ -16,9 +17,39 @@ import EventHandler from './handlers/Event.mjs';
 import FetchHandler from './handlers/Fetch.mjs';
 
 const config = new Config();
-const httpPort = process.env.HTTP_PORT || 80;
-const httpsPort = process.env.HTTPS_PORT || 443;
-const mongoHost = config.data.mongoHost || 'mongodb://localhost:27017/epistery-scan';
+const httpPort = process.env.PORT || 80;
+const httpsPort = process.env.PORTSSL || 443;
+
+// Load secrets from .secrets.json
+let secrets = null;
+try {
+  secrets = JSON.parse(readFileSync('secrets.json', 'utf8'));
+} catch (error) {
+  console.warn('[scan] No secrets.json found, using config or defaults');
+}
+
+// Build MongoDB connection string based on PROFILE
+function getMongoHost() {
+  if (secrets?.mongodb) {
+    const profile = process.env.PROFILE || 'PROD';
+    const host = profile === 'DEV' ? secrets.mongodb.host_dev : secrets.mongodb.host;
+    const port = secrets.mongodb.port || 27017;
+    const database = secrets.mongodb.database || 'epistery-scan';
+    const username = secrets.mongodb.username;
+    const password = secrets.mongodb.password;
+
+    if (username && password) {
+      return `mongodb://${username}:${password}@${host}:${port}/${database}?authSource=admin`;
+    } else {
+      return `mongodb://${host}:${port}/${database}`;
+    }
+  }
+
+  return config.data.mongoHost || 'mongodb://localhost:27017/epistery-scan';
+}
+
+const mongoHost = getMongoHost();
+console.log(`[scan] MongoDB mode: ${process.env.MODE || 'PROD'}`);
 
 /**
  * Epistery Scan Server
