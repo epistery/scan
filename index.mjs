@@ -167,7 +167,7 @@ class EpisteryScan {
 
   async start() {
     // Setup automatic SSL with administrate
-    const certify = await Certify.attach(this.app);
+    const certify = await Certify.attach(this.app,{contactEmail:secrets.contactEmail});
 
     // HTTPS server
     this.httpsServer = https.createServer({...certify.SNI}, this.app);
