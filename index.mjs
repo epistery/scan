@@ -32,11 +32,11 @@ try {
 function getMongoHost() {
   if (secrets?.mongo) {
     const profile = process.env.PROFILE || 'PROD';
-    const host = profile === 'DEV' ? secrets.mongodb.host_dev : secrets.mongodb.host;
-    const port = secrets.mongodb.port || 27017;
-    const database = secrets.mongodb.database || 'epistery-scan';
-    const username = secrets.mongodb.username;
-    const password = secrets.mongodb.password;
+    const host = profile === 'DEV' ? secrets.mongo.host_dev : secrets.mongo.host;
+    const port = secrets.mongo.port || 27017;
+    const database = secrets.mongo.database || 'epistery-scan';
+    const username = secrets.mongo.username;
+    const password = secrets.mongo.password;
 
     if (username && password) {
       return `mongodb://${username}:${password}@${host}:${port}/${database}?authSource=admin`;
