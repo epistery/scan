@@ -30,7 +30,7 @@ try {
 
 // Build MongoDB connection string based on PROFILE
 function getMongoHost() {
-  if (secrets?.mongodb) {
+  if (secrets?.mongo) {
     const profile = process.env.PROFILE || 'PROD';
     const host = profile === 'DEV' ? secrets.mongodb.host_dev : secrets.mongodb.host;
     const port = secrets.mongodb.port || 27017;
