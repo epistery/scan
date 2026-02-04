@@ -1,20 +1,24 @@
 import express from 'express';
+import http from 'http';
+import https from 'https';
 import cookieParser from 'cookie-parser';
 import cors from 'cors';
 import morgan from 'morgan';
 import mongodb from 'mongodb';
 import { Config } from 'epistery';
+import { Certify } from '@metric-im/administrate';
 import Componentry from '@metric-im/componentry';
 import Database from './db/Database.mjs';
 import IngestionManager from './ingestion/IngestionManager.mjs';
 import SearchHandler from './handlers/Search.mjs';
 import MonitorHandler from './handlers/Monitor.mjs';
 import EventHandler from './handlers/Event.mjs';
+import FetchHandler from './handlers/Fetch.mjs';
 
 const config = new Config();
-const port = process.env.PORT || 3000;
-const rootConfigData = config.read('/');
-const mongoHost = rootConfigData.mongoHost || 'mongodb://localhost:27017/epistery-scan';
+const httpPort = process.env.HTTP_PORT || 80;
+const httpsPort = process.env.HTTPS_PORT || 443;
+const mongoHost = config.data.mongoHost || 'mongodb://localhost:27017/epistery-scan';
 
 /**
  * Epistery Scan Server
@@ -57,22 +61,27 @@ class EpisteryScan {
     const ingestionConfig = {
       chains: {
         ethereum: {
-          enabled: rootConfigData.chains?.ethereum?.enabled !== false,
-          rpcUrl: rootConfigData.chains?.ethereum?.rpcUrl || 'https://eth.llamarpc.com'
+          enabled: config.data.chains?.ethereum?.enabled !== false,
+          rpcUrl: config.data.chains?.ethereum?.rpcUrl || 'https://eth.llamarpc.com'
         },
         polygon: {
-          enabled: rootConfigData.chains?.polygon?.enabled || false,
-          rpcUrl: rootConfigData.chains?.polygon?.rpcUrl || 'https://polygon-rpc.com'
+          enabled: config.data.chains?.polygon?.enabled !== false,
+          rpcUrl: config.data.chains?.polygon?.rpcUrl || 'https://polygon-rpc.com'
+        },
+        'polygon-amoy': {
+          enabled: config.data.chains?.['polygon-amoy']?.enabled !== false,
+          rpcUrl: config.data.chains?.['polygon-amoy']?.rpcUrl || 'https://rpc-amoy.polygon.technology'
         }
       },
-      pollInterval: rootConfigData.pollInterval || 60000
+      pollInterval: config.data.pollInterval || 300000 // 5 minutes for dev pace
     };
 
     this.ingestion = new IngestionManager(this.database, ingestionConfig);
     await this.ingestion.initialize();
 
     // Start ingestion polling
-    if (rootConfigData.ingestion?.autostart !== false) {
+    const autostart = config.data.ingestion?.autostart ?? true;
+    if (autostart) {
       this.ingestion.start();
     }
 
@@ -90,14 +99,18 @@ class EpisteryScan {
     const searchHandler = new SearchHandler(this.connector);
     const monitorHandler = new MonitorHandler(this.connector);
     const eventHandler = new EventHandler(this.connector);
+    const fetchHandler = new FetchHandler(this.connector);
 
-    // Link monitor handler to ingestion
+    // Link handlers to ingestion
     monitorHandler.setIngestion(this.ingestion);
+    searchHandler.setIngestion(this.ingestion);
+    fetchHandler.setIngestion(this.ingestion);
 
     // Mount API routes
     this.app.use('/api/search', searchHandler.routes());
     this.app.use('/api/monitor', monitorHandler.routes());
     this.app.use('/api/events', eventHandler.routes());
+    this.app.use('/api/fetch', fetchHandler.routes());
 
     // Serve main UI page
     this.app.get('/', (req, res) => {
@@ -122,10 +135,29 @@ class EpisteryScan {
   }
 
   async start() {
-    this.app.listen(port, () => {
-      console.log(`[scan] Epistery Scan running on http://localhost:${port}`);
-      console.log(`[scan] Health check: http://localhost:${port}/health`);
+    // Setup automatic SSL with administrate
+    const certify = await Certify.attach(this.app);
+
+    // HTTPS server
+    this.httpsServer = https.createServer({...certify.SNI}, this.app);
+    this.httpsServer.listen(httpsPort);
+    this.httpsServer.on('error', console.error);
+    this.httpsServer.on('listening', () => {
+      const address = this.httpsServer.address();
+      console.log(`[scan] HTTPS server running on port ${address.port}`);
     });
+
+    // HTTP server (for ACME challenges and redirects)
+    this.httpServer = http.createServer(this.app);
+    this.httpServer.listen(httpPort);
+    this.httpServer.on('error', console.error);
+    this.httpServer.on('listening', () => {
+      const address = this.httpServer.address();
+      console.log(`[scan] HTTP server running on port ${address.port}`);
+    });
+
+    console.log(`[scan] Epistery Scan initialized`);
+    console.log(`[scan] Health check: http://localhost:${httpPort}/health`);
   }
 
   async shutdown() {
@@ -133,6 +165,20 @@ class EpisteryScan {
     if (this.ingestion) {
       this.ingestion.stop();
     }
+
+    // Close servers gracefully
+    const closeServer = (server, name) => {
+      return new Promise((resolve) => {
+        if (!server) return resolve();
+        server.close(() => {
+          console.log(`[scan] ${name} server closed`);
+          resolve();
+        });
+      });
+    };
+
+    await closeServer(this.httpsServer, 'HTTPS');
+    await closeServer(this.httpServer, 'HTTP');
   }
 }
 

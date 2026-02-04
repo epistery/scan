@@ -14,6 +14,7 @@ export default class Database {
     this.entities = this.db.collection('entities');
     this.events = this.db.collection('events');
     this.monitors = this.db.collection('monitors');
+    this.transactions = this.db.collection('transactions');
   }
 
   /**
@@ -38,6 +39,13 @@ export default class Database {
     await this.monitors.createIndex({ active: 1 });
     await this.monitors.createIndex({ type: 1 });
 
+    // Transaction indexes
+    await this.transactions.createIndex({ hash: 1, chain: 1 }, { unique: true });
+    await this.transactions.createIndex({ from: 1 });
+    await this.transactions.createIndex({ to: 1 });
+    await this.transactions.createIndex({ blockNumber: -1 });
+    await this.transactions.createIndex({ timestamp: -1 });
+
     console.log('[db] Database indexes created');
   }
 
@@ -56,8 +64,10 @@ export default class Database {
       doc._created = now;
     }
 
+    // Case-insensitive query to find existing entity
+    const addressRegex = new RegExp(`^${entity.address}$`, 'i');
     const result = await this.entities.replaceOne(
-      { address: entity.address },
+      { address: addressRegex },
       doc,
       { upsert: true }
     );
@@ -66,10 +76,11 @@ export default class Database {
   }
 
   /**
-   * Get entity by address
+   * Get entity by address (case-insensitive)
    */
   async getEntity(address) {
-    return await this.entities.findOne({ address });
+    const addressRegex = new RegExp(`^${address}$`, 'i');
+    return await this.entities.findOne({ address: addressRegex });
   }
 
   /**
@@ -99,7 +110,7 @@ export default class Database {
       entityId: event.entityId,
       type: event.type,
       chain: event.chain,
-      ...event.data
+      ...this.convertBigInt(event.data)
     };
 
     const result = await this.events.insertOne(doc);
@@ -107,18 +118,38 @@ export default class Database {
   }
 
   /**
+   * Convert BigInt values to Number recursively
+   */
+  convertBigInt(obj) {
+    if (obj === null || obj === undefined) return obj;
+    if (typeof obj === 'bigint') return Number(obj);
+    if (Array.isArray(obj)) return obj.map(item => this.convertBigInt(item));
+    if (typeof obj === 'object') {
+      const converted = {};
+      for (const [key, value] of Object.entries(obj)) {
+        converted[key] = this.convertBigInt(value);
+      }
+      return converted;
+    }
+    return obj;
+  }
+
+  /**
    * Bulk record events
    */
   async recordEvents(events) {
-    const docs = events.map(event => ({
-      _id: this.connector.idForge.datedId(),
-      timestamp: event.timestamp || new Date(),
-      source: event.source,
-      entityId: event.entityId,
-      type: event.type,
-      chain: event.chain,
-      ...event.data
-    }));
+    const docs = events.map(event => {
+      const doc = {
+        _id: this.connector.idForge.datedId(),
+        timestamp: event.timestamp || new Date(),
+        source: event.source,
+        entityId: event.entityId,
+        type: event.type,
+        chain: event.chain,
+        ...this.convertBigInt(event.data)
+      };
+      return doc;
+    });
 
     const result = await this.events.insertMany(docs);
     return docs;
@@ -201,5 +232,54 @@ export default class Database {
       { address, chain },
       { $set: { active: false, _modified: new Date() } }
     );
+  }
+
+  /**
+   * Save or update a transaction
+   */
+  async saveTransaction(transaction, chain) {
+    const now = new Date();
+    const doc = {
+      _id: transaction.hash,
+      chain,
+      ...transaction,
+      _modified: now
+    };
+
+    if (!doc._created) {
+      doc._created = now;
+    }
+
+    // Case-insensitive query to find existing transaction
+    const hashRegex = new RegExp(`^${transaction.hash}$`, 'i');
+    const result = await this.transactions.replaceOne(
+      { hash: hashRegex, chain },
+      doc,
+      { upsert: true }
+    );
+
+    return doc;
+  }
+
+  /**
+   * Get transactions for an address
+   */
+  async getTransactionsForAddress(address, options = {}) {
+    const limit = options.limit || 50;
+    const skip = options.skip || 0;
+    const addressRegex = new RegExp(`^${address}$`, 'i');
+
+    const cursor = this.transactions
+      .find({
+        $or: [
+          { from: addressRegex },
+          { to: addressRegex }
+        ]
+      })
+      .sort({ timestamp: -1 })
+      .skip(skip)
+      .limit(limit);
+
+    return await cursor.toArray();
   }
 }

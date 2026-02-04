@@ -10,14 +10,21 @@ export default class AgentInterpreter {
     this.database = database;
     this.type = 'Agent';
 
-    // Minimal ABI for Agent contract
+    // Minimal ABI for DomainAgent contract
     this.abi = [
-      'event AccessGranted(address indexed user, string listName)',
-      'event AccessRevoked(address indexed user, string listName)',
-      'event AttributeSet(string key, string value)',
+      'event ACLModified(address indexed owner, string listName, address indexed addr, string action, uint256 timestamp)',
+      'event ApprovalRequested(address indexed approver, address indexed requestor, string fileName, string fileHash, uint256 timestamp)',
+      'event ApprovalHandled(address indexed approver, address indexed requestor, string fileName, bool approved, uint256 timestamp)',
+      'event AttributeSet(address indexed owner, string key, bool isPrivate, uint256 timestamp)',
+      'event AttributeDeleted(address indexed owner, string key, bool isPrivate, uint256 timestamp)',
+      'event OwnershipTransferred(address indexed previousOwner, address indexed newOwner, uint256 timestamp)',
+      'function VERSION() view returns (string)',
       'function domain() view returns (string)',
+      'function sponsor() view returns (address)',
       'function owner() view returns (address)',
-      'function isListed(address user, string listName) view returns (bool)'
+      'function isInACL(string listName, address addr) view returns (bool)',
+      'function getACL(string listName) view returns (tuple(address addr, string name, uint8 role, string meta)[])',
+      'function getListNames() view returns (string[])'
     ];
   }
 
@@ -26,9 +33,12 @@ export default class AgentInterpreter {
    */
   getEventFilters() {
     return [
-      'AccessGranted(address indexed user, string listName)',
-      'AccessRevoked(address indexed user, string listName)',
-      'AttributeSet(string key, string value)'
+      'ACLModified(address indexed owner, string listName, address indexed addr, string action, uint256 timestamp)',
+      'ApprovalRequested(address indexed approver, address indexed requestor, string fileName, string fileHash, uint256 timestamp)',
+      'ApprovalHandled(address indexed approver, address indexed requestor, string fileName, bool approved, uint256 timestamp)',
+      'AttributeSet(address indexed owner, string key, bool isPrivate, uint256 timestamp)',
+      'AttributeDeleted(address indexed owner, string key, bool isPrivate, uint256 timestamp)',
+      'OwnershipTransferred(address indexed previousOwner, address indexed newOwner, uint256 timestamp)'
     ];
   }
 
@@ -41,23 +51,45 @@ export default class AgentInterpreter {
 
     try {
       const contract = connector.getContract(address, this.abi);
+      const metadata = {};
 
-      // Read contract state
-      const domain = await contract.domain();
-      const owner = await contract.owner();
+      // Try to read owner (all contracts should have this)
+      try {
+        metadata.owner = await contract.owner();
+      } catch (e) {
+        console.log(`[interpreter:agent] No owner() for ${address}`);
+      }
+
+      // Try to read domain (only DomainAgent contracts have this)
+      try {
+        metadata.domain = await contract.domain();
+      } catch (e) {
+        // Not a DomainAgent, that's fine
+      }
+
+      // Try to read sponsor
+      try {
+        metadata.sponsor = await contract.sponsor();
+      } catch (e) {
+        // No sponsor, that's fine
+      }
+
+      // Try to read version
+      try {
+        metadata.version = await contract.VERSION();
+      } catch (e) {
+        // No version, that's fine
+      }
 
       // Save entity
       const entity = await this.database.saveEntity({
         address,
         type: this.type,
         chain,
-        metadata: {
-          domain,
-          owner
-        }
+        metadata
       });
 
-      console.log(`[interpreter:agent] Synced ${address} on ${chain}`);
+      console.log(`[interpreter:agent] Synced ${address} on ${chain}`, metadata);
       return entity;
     } catch (error) {
       console.error(`[interpreter:agent] Failed to sync ${address}:`, error.message);
@@ -75,11 +107,22 @@ export default class AgentInterpreter {
     const eventRecords = [];
 
     for (const eventFilter of this.getEventFilters()) {
+      // Add delay between event queries to avoid rate limiting (500ms for polygon)
+      if (eventRecords.length > 0) {
+        const delay = chain === 'polygon' ? 500 : 200;
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+
       const events = await connector.queryEvents(address, eventFilter, fromBlock, toBlock);
 
       for (const event of events) {
         // Enrich with timestamp
         event.timestamp = await connector.getBlockTimestamp(event.blockNumber);
+
+        // Debug: log event args
+        if (Object.keys(event.args).length > 0) {
+          console.log(`[interpreter:agent] Event ${event.event} args:`, event.args);
+        }
 
         // Create event record
         const record = {
@@ -101,8 +144,14 @@ export default class AgentInterpreter {
 
     // Bulk record events
     if (eventRecords.length > 0) {
-      await this.database.recordEvents(eventRecords);
-      console.log(`[interpreter:agent] Processed ${eventRecords.length} events for ${address}`);
+      try {
+        console.log(`[interpreter:agent] About to record ${eventRecords.length} events...`);
+        const result = await this.database.recordEvents(eventRecords);
+        console.log(`[interpreter:agent] Processed ${eventRecords.length} events for ${address}`);
+      } catch (error) {
+        console.error(`[interpreter:agent] Error recording events:`, error);
+        throw error;
+      }
     }
 
     return eventRecords;

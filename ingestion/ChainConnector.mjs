@@ -45,11 +45,14 @@ export default class ChainConnector {
     const contract = new ethers.Contract(address, ['event ' + eventFilter], this.provider);
     const filter = contract.filters[eventFilter.split('(')[0]]();
 
-    const chunkSize = 10000; // Query 10k blocks at a time
+    // Use very small chunk size for polygon due to Infura's strict limits
+    // Polygon seems to have undocumented strict limits, use 1 block at a time
+    const chunkSize = this.chain === 'polygon' ? 1 : 2000;
     const from = fromBlock || 0;
     const to = toBlock || await this.getCurrentBlock();
 
     const allEvents = [];
+    let consecutiveErrors = 0;
 
     for (let start = from; start <= to; start += chunkSize) {
       const end = Math.min(start + chunkSize - 1, to);
@@ -57,13 +60,31 @@ export default class ChainConnector {
       try {
         const events = await contract.queryFilter(filter, start, end);
         allEvents.push(...events);
+        consecutiveErrors = 0; // Reset error counter on success
 
         if (events.length > 0) {
           console.log(`[connector:${this.chain}] Found ${events.length} events in blocks ${start}-${end}`);
         }
+
+        // Add delay between chunk requests (slower for polygon)
+        if (start + chunkSize <= to) {
+          const delay = this.chain === 'polygon' ? 500 : 300;
+          await new Promise(resolve => setTimeout(resolve, delay));
+        }
       } catch (error) {
         console.error(`[connector:${this.chain}] Error querying blocks ${start}-${end}:`, error.message);
-        // Continue with next chunk
+        consecutiveErrors++;
+
+        // If too many consecutive errors, give up on this event type
+        if (consecutiveErrors >= 5) {
+          console.error(`[connector:${this.chain}] Too many consecutive errors, skipping remaining blocks for this event`);
+          break;
+        }
+
+        // Exponential backoff based on error count
+        const backoff = Math.min(10000, 1000 * Math.pow(2, consecutiveErrors - 1));
+        console.log(`[connector:${this.chain}] Backing off, waiting ${backoff}ms...`);
+        await new Promise(resolve => setTimeout(resolve, backoff));
       }
     }
 
@@ -74,15 +95,29 @@ export default class ChainConnector {
    * Normalize event to standard format
    */
   normalizeEvent(event) {
+    // In ethers v6, event name is in event.fragment.name or event.eventName
+    const eventName = event.eventName || event.fragment?.name || event.event || 'Unknown';
+
+    // Extract args - in ethers v6, args is an array-like object
+    // We need to convert it to a plain object with named parameters
+    const args = {};
+    if (event.args) {
+      // Get fragment to access parameter names
+      const fragment = event.fragment;
+      if (fragment && fragment.inputs) {
+        fragment.inputs.forEach((input, index) => {
+          args[input.name] = event.args[index];
+        });
+      }
+    }
+
     return {
       chain: this.chain,
       blockNumber: event.blockNumber,
       transactionHash: event.transactionHash,
       address: event.address,
-      event: event.event,
-      args: event.args ? Object.fromEntries(
-        Object.entries(event.args).filter(([key]) => isNaN(key))
-      ) : {},
+      event: eventName,
+      args: args,
       timestamp: null // Will be enriched with block timestamp
     };
   }
@@ -116,6 +151,42 @@ export default class ChainConnector {
   async getTransactionReceipt(hash) {
     return await this.provider.getTransactionReceipt(hash);
   }
+
+  /**
+   * Get full transaction details (transaction + receipt + block)
+   */
+  async getTransactionDetails(hash) {
+    const [tx, receipt] = await Promise.all([
+      this.getTransaction(hash),
+      this.getTransactionReceipt(hash)
+    ]);
+
+    if (!tx) {
+      return null;
+    }
+
+    const block = await this.provider.getBlock(tx.blockNumber);
+
+    return {
+      hash: tx.hash,
+      from: tx.from,
+      to: tx.to,
+      value: tx.value.toString(),
+      gasLimit: tx.gasLimit.toString(),
+      gasPrice: tx.gasPrice?.toString(),
+      maxFeePerGas: tx.maxFeePerGas?.toString(),
+      maxPriorityFeePerGas: tx.maxPriorityFeePerGas?.toString(),
+      nonce: tx.nonce,
+      data: tx.data,
+      blockNumber: tx.blockNumber,
+      blockHash: tx.blockHash,
+      timestamp: block.timestamp,
+      gasUsed: receipt?.gasUsed?.toString(),
+      status: receipt?.status,
+      contractAddress: receipt?.contractAddress,
+      logs: receipt?.logs || []
+    };
+  }
 }
 
 /**
@@ -135,10 +206,17 @@ export class ChainConnectorFactory {
    */
   static async createFromConfig(config) {
     const connectors = {};
+    const chains = Object.entries(config.chains || {});
 
-    for (const [chain, chainConfig] of Object.entries(config.chains || {})) {
+    for (let i = 0; i < chains.length; i++) {
+      const [chain, chainConfig] = chains[i];
       if (chainConfig.enabled !== false) {
         connectors[chain] = await ChainConnectorFactory.create(chain, chainConfig.rpcUrl);
+
+        // Add delay between connector initializations to avoid rate limiting
+        if (i < chains.length - 1) {
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        }
       }
     }
 

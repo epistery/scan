@@ -81,11 +81,17 @@ export default class IngestionManager {
     const monitors = await this.database.getActiveMonitors();
     console.log(`[ingestion] Processing ${monitors.length} monitors...`);
 
-    for (const monitor of monitors) {
+    for (let i = 0; i < monitors.length; i++) {
       try {
-        await this.processMonitor(monitor);
+        await this.processMonitor(monitors[i]);
+
+        // Add delay between monitors to avoid rate limiting (1s for polygon)
+        if (i < monitors.length - 1) {
+          const delay = monitors[i].chain === 'polygon' ? 1000 : 500;
+          await new Promise(resolve => setTimeout(resolve, delay));
+        }
       } catch (error) {
-        console.error(`[ingestion] Error processing monitor ${monitor.address}:`, error.message);
+        console.error(`[ingestion] Error processing monitor ${monitors[i].address}:`, error.message);
       }
     }
   }
@@ -108,12 +114,21 @@ export default class IngestionManager {
 
     // Get last processed block from entity metadata
     const entity = await this.database.getEntity(monitor.address);
-    const lastBlock = entity?.lastProcessedBlock || 0;
+
+    // Start from deployment block if known, otherwise use a recent block to avoid scanning all history
+    // For new monitors without deployment info, start from 1000 blocks ago
+    let startBlock = entity?.lastProcessedBlock;
+    if (!startBlock) {
+      const currentBlock = await connector.getCurrentBlock();
+      // If we don't know deployment block, only scan recent history (last 100k blocks or contract deployment)
+      startBlock = entity?.deploymentBlock || Math.max(0, currentBlock - 100000);
+    }
+
     const currentBlock = await connector.getCurrentBlock();
 
-    if (currentBlock > lastBlock) {
+    if (currentBlock > startBlock) {
       // Process new events
-      await interpreter.processEvents(monitor.address, monitor.chain, lastBlock + 1, currentBlock);
+      await interpreter.processEvents(monitor.address, monitor.chain, startBlock + 1, currentBlock);
 
       // Update last processed block
       await this.database.saveEntity({
