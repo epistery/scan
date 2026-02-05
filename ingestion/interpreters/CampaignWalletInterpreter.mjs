@@ -1,8 +1,8 @@
 /**
  * CampaignWalletInterpreter
  *
- * Interprets CampaignWallet.sol - operates ad campaigns in the Adnet network.
- * Location: /geistm/adnet-factory/contracts/CampaignWallet.sol
+ * Interprets CampaignWallet.sol v2 contracts - advertising campaigns in the Adnet ecosystem.
+ * Location: /geistm/adnet-factory-v2/contracts/CampaignWallet.sol
  */
 export default class CampaignWalletInterpreter {
   constructor(connector, database) {
@@ -10,52 +10,71 @@ export default class CampaignWalletInterpreter {
     this.database = database;
     this.type = 'CampaignWallet';
 
-    // Minimal ABI for CampaignWallet
+    // Minimal ABI for CampaignWallet v2 contract
     this.abi = [
-      'event CampaignCreated(address indexed creator, uint256 budget)',
-      'event ImpressionRecorded(bytes32 indexed adId, address indexed publisher)',
-      'event ClickRecorded(bytes32 indexed adId, address indexed publisher)',
-      'event PaymentMade(address indexed publisher, uint256 amount)',
-      'function owner() view returns (address)',
-      'function budget() view returns (uint256)',
-      'function spent() view returns (uint256)'
+      'event BatchSubmitted(address indexed publisher, string ipfsCID, uint256 payout, bytes32 lastHash)',
+      'event Withdrawn(address indexed publisher, uint256 amount)',
+      'event PromotionAdded(string promotionId, string creative)',
+      'event PromotionUpdated(uint256 indexed index, bool active)',
+      'event CampaignPaused(address indexed by)',
+      'event CampaignUnpaused(address indexed by)',
+      'event BudgetAdded(address indexed from, uint256 amount)',
+      'function name() view returns (string)',
+      'function advertiser() view returns (string, address)',
+      'function agency() view returns (address)',
+      'function active() view returns (bool)',
+      'function getPromotionCount() view returns (uint256)'
     ];
   }
 
+  /**
+   * Get events to monitor for this contract type
+   */
   getEventFilters() {
     return [
-      'CampaignCreated(address indexed creator, uint256 budget)',
-      'ImpressionRecorded(bytes32 indexed adId, address indexed publisher)',
-      'ClickRecorded(bytes32 indexed adId, address indexed publisher)',
-      'PaymentMade(address indexed publisher, uint256 amount)'
+      'BatchSubmitted(address indexed publisher, string ipfsCID, uint256 payout, bytes32 lastHash)',
+      'Withdrawn(address indexed publisher, uint256 amount)',
+      'PromotionAdded(string promotionId, string creative)',
+      'PromotionUpdated(uint256 indexed index, bool active)',
+      'CampaignPaused(address indexed by)',
+      'CampaignUnpaused(address indexed by)',
+      'BudgetAdded(address indexed from, uint256 amount)'
     ];
   }
 
+  /**
+   * Sync a contract - read current state and record as entity
+   */
   async syncContract(address, chain) {
     const connector = this.connector[chain];
     if (!connector) throw new Error(`No connector for chain: ${chain}`);
 
     try {
       const contract = connector.getContract(address, this.abi);
+      const metadata = {};
 
-      // Read contract state
-      const owner = await contract.owner();
-      const budget = await contract.budget();
-      const spent = await contract.spent();
+      // Read campaign attributes (v2)
+      try { metadata.name = await contract.name(); } catch (e) {}
+      try {
+        const advertiserData = await contract.advertiser();
+        metadata.advertiser = {
+          name: advertiserData[0],
+          wallet: advertiserData[1]
+        };
+      } catch (e) {}
+      try { metadata.agency = await contract.agency(); } catch (e) {}
+      try { metadata.active = await contract.active(); } catch (e) {}
+      try { metadata.promotionCount = (await contract.getPromotionCount()).toString(); } catch (e) {}
 
       // Save entity
       const entity = await this.database.saveEntity({
         address,
         type: this.type,
         chain,
-        metadata: {
-          owner: owner.toLowerCase(),
-          budget: budget.toString(),
-          spent: spent.toString()
-        }
+        metadata
       });
 
-      console.log(`[interpreter:campaign] Synced ${address} on ${chain}`);
+      console.log(`[interpreter:campaign] Synced ${address} on ${chain}`, metadata);
       return entity;
     } catch (error) {
       console.error(`[interpreter:campaign] Failed to sync ${address}:`, error.message);
@@ -63,6 +82,9 @@ export default class CampaignWalletInterpreter {
     }
   }
 
+  /**
+   * Process events for this contract
+   */
   async processEvents(address, chain, fromBlock, toBlock) {
     const connector = this.connector[chain];
     if (!connector) throw new Error(`No connector for chain: ${chain}`);
@@ -70,51 +92,57 @@ export default class CampaignWalletInterpreter {
     const eventRecords = [];
 
     for (const eventFilter of this.getEventFilters()) {
+      // Add delay between event queries to avoid rate limiting
+      if (eventRecords.length > 0) {
+        const delay = chain === 'polygon' ? 500 : 200;
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+
       const events = await connector.queryEvents(address, eventFilter, fromBlock, toBlock);
 
       for (const event of events) {
+        // Enrich with timestamp
         event.timestamp = await connector.getBlockTimestamp(event.blockNumber);
 
         const record = {
-          source: 'blockchain',
+          type: `campaign.${event.eventName}`,
+          source: 'CampaignWallet',
           entityId: address,
-          type: `campaign.${event.event}`,
-          chain: chain,
-          data: {
-            blockNumber: event.blockNumber,
-            transactionHash: event.transactionHash,
-            ...event.args
-          },
+          chain,
+          blockNumber: event.blockNumber,
+          transactionHash: event.transactionHash,
           timestamp: event.timestamp
         };
+
+        // Parse event-specific data (v2)
+        if (event.eventName === 'BatchSubmitted') {
+          record.publisher = event.args.publisher;
+          record.ipfsCID = event.args.ipfsCID;
+          record.payout = event.args.payout.toString();
+          record.lastHash = event.args.lastHash;
+        } else if (event.eventName === 'Withdrawn') {
+          record.publisher = event.args.publisher;
+          record.amount = event.args.amount.toString();
+        } else if (event.eventName === 'PromotionAdded') {
+          record.promotionId = event.args.promotionId;
+          record.creative = event.args.creative;
+        } else if (event.eventName === 'PromotionUpdated') {
+          record.index = event.args.index.toString();
+          record.active = event.args.active;
+        } else if (event.eventName === 'CampaignPaused') {
+          record.by = event.args.by;
+        } else if (event.eventName === 'CampaignUnpaused') {
+          record.by = event.args.by;
+        } else if (event.eventName === 'BudgetAdded') {
+          record.from = event.args.from;
+          record.amount = event.args.amount.toString();
+        }
 
         eventRecords.push(record);
       }
     }
 
-    if (eventRecords.length > 0) {
-      await this.database.recordEvents(eventRecords);
-      console.log(`[interpreter:campaign] Processed ${eventRecords.length} events for ${address}`);
-    }
-
+    console.log(`[interpreter:campaign] Processed ${eventRecords.length} events for ${address}`);
     return eventRecords;
-  }
-
-  async getSummary(address, chain) {
-    const entity = await this.database.getEntity(address);
-    if (!entity) return null;
-
-    const events = await this.database.getEntityEvents(address, { limit: 10 });
-
-    return {
-      address,
-      type: this.type,
-      chain,
-      owner: entity.metadata?.owner,
-      budget: entity.metadata?.budget,
-      spent: entity.metadata?.spent,
-      recentEvents: events.length,
-      lastActivity: events[0]?.timestamp
-    };
   }
 }

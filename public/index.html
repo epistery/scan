@@ -421,10 +421,18 @@
       const attributes = {};
       let currentOwner = null;
 
+      // Campaign data
+      const promotions = {};
+      let totalPayout = 0;
+      let totalWithdrawn = 0;
+      let totalBudgetAdded = 0;
+      let campaignStatus = 'active';
+
       // Sort events by timestamp (oldest first) to replay history
       const sortedEvents = [...events].sort((a, b) => a.timestamp - b.timestamp);
 
       sortedEvents.forEach(event => {
+        // Agent events
         if (event.type === 'agent.ACLModified') {
           const key = `${event.listName}:${event.addr}`;
           if (event.action === 'add') {
@@ -448,6 +456,29 @@
           delete attributes[event.key];
         } else if (event.type === 'agent.OwnershipTransferred') {
           currentOwner = event.newOwner;
+        }
+
+        // Campaign events (v2)
+        else if (event.type === 'campaign.PromotionAdded') {
+          promotions[event.promotionId] = {
+            id: event.promotionId,
+            creative: event.creative,
+            active: true,
+            addedAt: event.timestamp
+          };
+        } else if (event.type === 'campaign.PromotionUpdated') {
+          const promo = Object.values(promotions)[event.index];
+          if (promo) promo.active = event.active;
+        } else if (event.type === 'campaign.BatchSubmitted') {
+          totalPayout += parseInt(event.payout);
+        } else if (event.type === 'campaign.Withdrawn') {
+          totalWithdrawn += parseInt(event.amount);
+        } else if (event.type === 'campaign.BudgetAdded') {
+          totalBudgetAdded += parseInt(event.amount);
+        } else if (event.type === 'campaign.CampaignPaused') {
+          campaignStatus = 'paused';
+        } else if (event.type === 'campaign.CampaignUnpaused') {
+          campaignStatus = 'active';
         }
       });
 
@@ -507,6 +538,57 @@
         html += '</div>';
       } else {
         html += '<p style="color: #999; margin: 1rem 0;">No attributes set</p>';
+      }
+
+      // Campaign Data (v2)
+      if (Object.keys(promotions).length > 0 || totalPayout > 0) {
+        html += '<h3 style="margin-top: 2rem;">📢 Campaign Overview</h3>';
+        html += `<div style="margin: 1rem 0; padding: 1rem; background: #f9f9f9; border-radius: 4px; border-left: 3px solid #f39c12;">`;
+        const statusIcon = campaignStatus === 'active' ? '▶️' : '⏸️';
+        const statusColor = campaignStatus === 'active' ? '#2ecc71' : '#95a5a6';
+        html += `<div style="margin-bottom: 0.5rem;"><strong>Status:</strong> <span style="color: ${statusColor};">${statusIcon} ${campaignStatus}</span></div>`;
+        html += `<div style="margin-bottom: 0.5rem;"><strong>Promotions:</strong> ${Object.keys(promotions).length}</div>`;
+        html += '</div>';
+
+        // Campaign Stats
+        if (totalPayout > 0 || totalWithdrawn > 0 || totalBudgetAdded > 0) {
+          html += '<h3 style="margin-top: 2rem;">📊 Campaign Financials</h3>';
+          html += `<div style="margin: 1rem 0; padding: 1rem; background: #f9f9f9; border-radius: 4px;">`;
+          html += `<div style="display: flex; gap: 2rem; flex-wrap: wrap;">`;
+          if (totalBudgetAdded > 0) {
+            const budgetMatic = (totalBudgetAdded / 1e18).toFixed(6);
+            html += `<div><strong>💵 Budget Added:</strong> ${budgetMatic} MATIC</div>`;
+          }
+          if (totalPayout > 0) {
+            const payoutMatic = (totalPayout / 1e18).toFixed(6);
+            html += `<div><strong>💰 Total Payout:</strong> ${payoutMatic} MATIC</div>`;
+          }
+          if (totalWithdrawn > 0) {
+            const withdrawnMatic = (totalWithdrawn / 1e18).toFixed(6);
+            html += `<div><strong>💸 Total Withdrawn:</strong> ${withdrawnMatic} MATIC</div>`;
+          }
+          if (totalBudgetAdded > 0 && totalWithdrawn > 0) {
+            const remaining = (totalBudgetAdded - totalWithdrawn) / 1e18;
+            html += `<div><strong>💼 Remaining:</strong> ${remaining.toFixed(6)} MATIC</div>`;
+          }
+          html += `</div>`;
+          html += '</div>';
+        }
+
+        // Promotions
+        if (Object.keys(promotions).length > 0) {
+          html += '<h3 style="margin-top: 2rem;">🎨 Promotions</h3>';
+          html += '<div style="margin: 1rem 0;">';
+          Object.values(promotions).forEach(promo => {
+            const status = promo.active ? '✅ Active' : '❌ Inactive';
+            html += `<div style="margin-bottom: 1rem; padding: 1rem; background: #f9f9f9; border-radius: 4px; border-left: 3px solid ${promo.active ? '#2ecc71' : '#95a5a6'};">`;
+            html += `<div style="margin-bottom: 0.5rem;"><strong>ID: ${promo.id}</strong> <span style="font-size: 0.85rem; margin-left: 0.5rem;">${status}</span></div>`;
+            html += `<div style="font-size: 0.85rem; color: #666; margin-bottom: 0.5rem;">Creative (IPFS): <code>${promo.creative}</code></div>`;
+            html += `<div style="font-size: 0.75rem; color: #999;">Added: ${new Date(promo.addedAt * 1000).toLocaleString()}</div>`;
+            html += '</div>';
+          });
+          html += '</div>';
+        }
       }
 
       html += '</div>';
@@ -577,6 +659,123 @@
               New Owner: <code>${event.newOwner}</code>
             </div>
           `;
+        } else if (event.type === 'campaign.BatchSubmitted') {
+          const shortPublisher = `${event.publisher.substring(0, 6)}...${event.publisher.substring(38)}`;
+          const payoutMatic = (parseFloat(event.payout) / 1e18).toFixed(6);
+
+          eventDescription = `📊 Batch submitted by ${shortPublisher}: ${payoutMatic} MATIC payout`;
+
+          eventDetails = `
+            <div style="margin-top: 0.5rem; font-size: 0.85rem; color: #666;">
+              Publisher: <code>${event.publisher}</code><br>
+              Payout: ${payoutMatic} MATIC (${event.payout} wei)<br>
+              IPFS CID: <code>${event.ipfsCID}</code><br>
+              Hash: ${event.lastHash}
+            </div>
+          `;
+        } else if (event.type === 'campaign.Withdrawn') {
+          const shortPublisher = `${event.publisher.substring(0, 6)}...${event.publisher.substring(38)}`;
+          const amountMatic = (parseFloat(event.amount) / 1e18).toFixed(6);
+
+          eventDescription = `💸 ${shortPublisher} withdrew ${amountMatic} MATIC`;
+
+          eventDetails = `
+            <div style="margin-top: 0.5rem; font-size: 0.85rem; color: #666;">
+              Publisher: <code>${event.publisher}</code><br>
+              Amount: ${amountMatic} MATIC (${event.amount} wei)
+            </div>
+          `;
+        } else if (event.type === 'campaign.PromotionAdded') {
+          eventDescription = `➕ Promotion added: <code>${event.promotionId}</code>`;
+
+          eventDetails = `
+            <div style="margin-top: 0.5rem; font-size: 0.85rem; color: #666;">
+              Promotion ID: ${event.promotionId}<br>
+              Creative (IPFS): <code>${event.creative}</code>
+            </div>
+          `;
+        } else if (event.type === 'campaign.PromotionUpdated') {
+          const status = event.active ? '✅ activated' : '❌ deactivated';
+          eventDescription = `🔄 Promotion #${event.index} ${status}`;
+
+          eventDetails = `
+            <div style="margin-top: 0.5rem; font-size: 0.85rem; color: #666;">
+              Promotion Index: ${event.index}<br>
+              Status: ${event.active ? 'Active' : 'Inactive'}
+            </div>
+          `;
+        } else if (event.type === 'campaign.CampaignPaused') {
+          const shortBy = `${event.by.substring(0, 6)}...${event.by.substring(38)}`;
+          eventDescription = `⏸️ Campaign paused by ${shortBy}`;
+
+          eventDetails = `
+            <div style="margin-top: 0.5rem; font-size: 0.85rem; color: #666;">
+              Paused by: <code>${event.by}</code>
+            </div>
+          `;
+        } else if (event.type === 'campaign.CampaignUnpaused') {
+          const shortBy = `${event.by.substring(0, 6)}...${event.by.substring(38)}`;
+          eventDescription = `▶️ Campaign resumed by ${shortBy}`;
+
+          eventDetails = `
+            <div style="margin-top: 0.5rem; font-size: 0.85rem; color: #666;">
+              Resumed by: <code>${event.by}</code>
+            </div>
+          `;
+        } else if (event.type === 'campaign.BudgetAdded') {
+          const shortFrom = `${event.from.substring(0, 6)}...${event.from.substring(38)}`;
+          const amountMatic = (parseFloat(event.amount) / 1e18).toFixed(6);
+
+          eventDescription = `<strong>budget</strong> += ${amountMatic} MATIC <span style="color: #999; font-size: 0.9rem;">(by ${shortFrom})</span>`;
+
+          eventDetails = `
+            <div style="margin-top: 0.5rem; font-size: 0.85rem; color: #666;">
+              From: <code>${event.from}</code><br>
+              Amount: ${amountMatic} MATIC (${event.amount} wei)
+            </div>
+          `;
+        } else if (event.type === 'system.OwnershipTransferred') {
+          const shortPrev = event.previousOwner === '0x0000000000000000000000000000000000000000' ? '∅' : `${event.previousOwner.substring(0, 6)}...${event.previousOwner.substring(38)}`;
+          const shortNew = `${event.newOwner.substring(0, 6)}...${event.newOwner.substring(38)}`;
+
+          eventDescription = `<strong>owner</strong> = ${shortNew}`;
+
+          eventDetails = `
+            <div style="margin-top: 0.5rem; font-size: 0.85rem; color: #666;">
+              Previous: <code>${event.previousOwner}</code><br>
+              New: <code>${event.newOwner}</code>
+            </div>
+          `;
+        } else if (event.type === 'system.RoleGranted') {
+          const shortAccount = `${event.account.substring(0, 6)}...${event.account.substring(38)}`;
+          const roleName = event.role === '0x97667070c54ef182b0f5858b034beac1b6f3089aa2d3188bb1e8929f4fa9b929' ? 'PUBLISHER_ROLE' :
+                          event.role === '0xb09aa5aeb3702cfd50b6b62bc4532604938f21248a27a1d5ca736082b6819cc1' ? 'ADMIN_ROLE' :
+                          event.role.substring(0, 10);
+
+          eventDescription = `<strong>${roleName}</strong> granted to ${shortAccount}`;
+
+          eventDetails = `
+            <div style="margin-top: 0.5rem; font-size: 0.85rem; color: #666;">
+              Role: <code>${event.role}</code><br>
+              Account: <code>${event.account}</code><br>
+              Granted by: <code>${event.sender}</code>
+            </div>
+          `;
+        } else if (event.type === 'system.RoleRevoked') {
+          const shortAccount = `${event.account.substring(0, 6)}...${event.account.substring(38)}`;
+          const roleName = event.role === '0x97667070c54ef182b0f5858b034beac1b6f3089aa2d3188bb1e8929f4fa9b929' ? 'PUBLISHER_ROLE' :
+                          event.role === '0xb09aa5aeb3702cfd50b6b62bc4532604938f21248a27a1d5ca736082b6819cc1' ? 'ADMIN_ROLE' :
+                          event.role.substring(0, 10);
+
+          eventDescription = `<strong>${roleName}</strong> revoked from ${shortAccount}`;
+
+          eventDetails = `
+            <div style="margin-top: 0.5rem; font-size: 0.85rem; color: #666;">
+              Role: <code>${event.role}</code><br>
+              Account: <code>${event.account}</code><br>
+              Revoked by: <code>${event.sender}</code>
+            </div>
+          `;
         } else {
           // Unknown event type - show raw data
           eventDescription = event.type || 'Unknown Event';
@@ -587,14 +786,19 @@
           eventDetails = `<pre style="font-size: 0.85rem;">${JSON.stringify(eventData, null, 2)}</pre>`;
         }
 
+        const eventId = `event-${event.blockNumber}-${Math.random().toString(36).substring(7)}`;
+
         return `
           <div class="event-row">
             <div class="event-type">${event.type || 'Unknown'}</div>
             <div class="event-time">${new Date(ts).toLocaleString()}</div>
             <div style="margin-top: 0.5rem;">${eventDescription}</div>
-            ${eventDetails}
-            <div style="margin-top: 0.5rem; font-size: 0.8rem; color: #999;">
-              Tx: <code>${event.transactionHash}</code> | Block: ${event.blockNumber}
+            <div id="${eventId}" style="display: none; margin-top: 0.5rem;">
+              ${eventDetails}
+            </div>
+            <div style="margin-top: 0.5rem; font-size: 0.8rem; color: #999; display: flex; justify-content: space-between; align-items: center;">
+              <span>Block: ${event.blockNumber} | Tx: <code style="font-size: 0.75rem;">${event.transactionHash.substring(0, 20)}...</code></span>
+              <a href="#" onclick="document.getElementById('${eventId}').style.display = document.getElementById('${eventId}').style.display === 'none' ? 'block' : 'none'; this.textContent = this.textContent === '⋯ details' ? '⋯ hide' : '⋯ details'; return false;" style="color: #95a5a6; text-decoration: none; font-size: 0.9rem;">⋯ details</a>
             </div>
           </div>
         `;

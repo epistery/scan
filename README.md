@@ -1,158 +1,311 @@
 # epistery-scan
 
-Epistery Scan is like etherscan, but host focused rather than chain specific.
+Epistery Scan is a blockchain explorer for the Epistery ecosystem - chain-first, not chain-specific.
 
-The server has a list of agent contracts to track, along with the contracts they may
-spawn and all the events created. Contracts may reside on different chains.
-By stashing the event data as it happens and routinely refreshing, the server can
-provide fast and robust queries for all the agents operating in the epistery 
-ecosystem.
+**Live at:** https://epistery.io
 
-Epistery Scan can play a further role as a message router. Many epistery objects
-anticipate messaging each other through chain transactions. Epistery Scan can
-translate that system into the real world of instant messaging. It can also perform
-search beyond just transactional data as it will know how the contracts it monitors are
-structured, so where to find the data and how to read it if given permission.
+## Philosophy: Chain-First Architecture
 
-## Profile
+Unlike traditional blockchain explorers that cache everything, Epistery Scan treats **the blockchain as the source of truth**:
 
-This is a node express application that integrates epistery for access control and utility.
-It provides both an /api and a gui. The database is mongo. We will use the /metric-im/componentry
-framework for UI and module management.
+- **Search queries the chain directly** - Real-time contract state, no stale data
+- **Events fetched on-demand** - Read from chain when viewing a contract
+- **Transactions live-queried** - No storage, just direct RPC calls
+- **MongoDB is only an index** - Maps addresses to chains for faster lookups
 
-All system configuration is to be managed with the Epistery Config module.
+This approach:
+- Eliminates data synchronization issues
+- Reduces database storage by 95%
+- Makes efficient use of RPC quota (15M requests available)
+- Ensures data is always current
+
+## What It Does
+
+Epistery Scan understands Epistery contracts and presents blockchain data meaningfully:
+
+**For addresses:**
+- Detects if it's a contract or wallet
+- Reads epistery attributes (owner, sponsor, domain, version)
+- Shows human-readable event interpretations
+- Reconstructs current state (ACLs, attributes) from event history
+
+**For events:**
+- Interprets `agent.ACLModified` as "**0xc191...** added `0xB357...` to `epistery::editor`"
+- Shows `agent.AttributeSet` as "**0xc191...** set 🔓 public attribute `@epistery/wiki`"
+- Displays reconstructed object state (current ACL members, active attributes)
+
+**For contracts:**
+- Agent.sol - Domain hosts managing access lists
+- IdentityContract.sol - Multi-device identity binding
+- CampaignWallet.sol - Ad campaign management
 
 ## Architecture
 
-The system naturally has three main components, ingestion, storage and control.
+### Chain Connectors
+Normalize blockchain access across different chains:
+- Ethereum mainnet
+- Polygon mainnet
+- Polygon Amoy testnet
+- Configurable RPC endpoints via epistery config
 
-**Ingestion** is made up of
-connectors that normalize lookup across diverse sources (chains), as well as interpreters that know how
-to gather the events and facts of each contract type. There are just a handful of contracts currently active in the Epistery ecosystem
+### Event Interpreters
+Parse raw logs into meaningful events:
+- `AgentInterpreter` - Handles Agent.sol events (ACLModified, AttributeSet, AttributeDeleted, OwnershipTransferred)
+- Gracefully handles contracts without `domain()` (not all contracts are DomainAgents)
+- Extensible for IdentityContract and CampaignWallet
 
-* /rootz/epistery/contracts/Agent.sol - Contract representing a domain host. Manages access lists and agent attributes
-* /rootz/epistery/contracts/IdentityContract.sol - Contract which binds a number of browser rivets into a single identity. Essentially multisig.
-* /geistm/adnet-factory/contracts/CampaignWallet.sol - Contract the operates an ad campaign
+### Database (MongoDB)
+**Minimal storage philosophy:**
+- `entities` - Address→chain index with basic metadata
+- `monitors` - Contracts to track (manual additions only, no auto-polling)
+- Events cached temporarily but always re-fetched from chain
 
-**Storage** has structured data and event data. The structured data should organize objects by type and relationship.
-The event data is a large loosely typed collection of all event records, across all objects. Each record
-has a timestamp, source, entityId and type. The rest of the attributes are arbitrary name/value expressions
-pertinent to the context. This structure is ideal for mongo aggregation queries.
+### API Handlers
+- **Search** - Chain-first lookup with fallback to index
+- **Fetch** - On-demand event/transaction fetching
+- **Monitor** - Manual contract tracking (no auto-polling)
+- **Events** - Hybrid cache/chain event retrieval
 
-**Control** is the UI humans use to manage the system and search for data to be displayed in tables, charts
-or reports. It is also the api apps use to do the same with raw data exchange. Access control for
-both UI and the API is managed by epistery. For a reference implementation see /epistery/wiki
-
-The main page of the UI should present search and show results, like etherscan, in a tabbed block which
-shows, transactions, object data. Control automatically informs Ingestion for what to monitor by what people
-search. There should also be an api call to trigger this manually. For example, When an epistery host
-creates a new IdentityContract it will tell epistery-scan to start monitoring the new address.
-
-This app is not an agent. It is a standalone server managing a database behind a public facing website.
+### SSL & Deployment
+- Automatic SSL via `@metric-im/administrate`
+- Let's Encrypt certificates auto-provision and renew
+- No nginx needed - handles HTTP (port 80) and HTTPS (port 443) directly
 
 ## Setup
 
-1. Install dependencies:
+### 1. Install dependencies
 ```bash
 npm install
 ```
 
-2. Configure MongoDB and blockchain RPC endpoints:
-```bash
-cp config.example.json ~/.epistery/{your-domain}/config.json
+### 2. Configure database (secrets.json)
+```json
+{
+  "contactEmail": "your@email.com",
+  "mongo": {
+    "host": "192.168.1.100",
+    "host_dev": "1.2.3.4",
+    "port": 27017,
+    "database": "epistery-scan",
+    "username": "epistery_user",
+    "password": "your_password"
+  }
+}
 ```
 
-Edit the config to set:
-- MongoDB connection string
-- Chain RPC URLs (ethereum, polygon, etc.)
-- Polling interval
+**Environment modes:**
+- `PROFILE=PROD` (default) - Uses `mongo.host` (LAN IP)
+- `PROFILE=DEV` - Uses `mongo.host_dev` (public IP for whitelisted machines)
 
-3. Start the server:
-```bash
-npm start
+**Important:** Connection string must include `directConnection=true` to prevent MongoDB driver from hanging on replica set discovery.
+
+### 3. Configure chains (~/.epistery/config.ini)
+```ini
+[chains.polygon]
+enabled=true
+rpcUrl=https://polygon-mainnet.infura.io/v3/YOUR_API_KEY
+
+[chains.ethereum]
+enabled=false
+rpcUrl=https://mainnet.infura.io/v3/YOUR_API_KEY
+
+[chains.polygon-amoy]
+enabled=true
+rpcUrl=https://polygon-amoy.infura.io/v3/YOUR_API_KEY
+
+[ingestion]
+autostart=false
 ```
 
-The server will run on http://localhost:3000 by default.
+**Note:** Auto-polling is disabled by default. Use on-demand fetching to control RPC usage.
+
+### 4. Run locally (development)
+```bash
+PROFILE=DEV npm start
+```
+
+Server runs on:
+- HTTP: port 80 (configurable via `PORT` env var)
+- HTTPS: port 443 (configurable via `PORTSSL` env var)
+
+### 5. Deploy to production
+```bash
+# On epistery.io server
+git pull
+npm install
+sudo systemctl restart epistery-scan
+```
+
+SSL certificates provision automatically via administrate.
 
 ## Usage
 
 ### Web Interface
 
-Visit http://localhost:3000 to use the search interface. You can:
-- Search for addresses (0x...)
-- Search for transaction hashes
-- Search by domain name
-- View entity details and events in tabbed format
+**Search:** https://epistery.io
+
+Enter:
+- Contract address: `0x330fE90a198283803B78c02BfFa5390Ec2f15d70`
+- Wallet address: `0xc191714b9c925063e4782691C36b8ff0605f6a6B`
+- Transaction hash: `0xbea85b7f...` (64 hex chars)
+- Domain name: Search indexed contracts by domain
+
+**Results show:**
+- **Overview** - Contract type, chain, owner, domain, version
+- **Events** - Human-readable event interpretations
+- **Transactions** - Full transaction details from chain
+- **Object Data** - Reconstructed current state (ACLs, attributes)
 
 ### API Endpoints
 
-**Search**
-- `GET /api/search?q=0x...` - Search for addresses or transactions
-
-**Monitor Management**
-- `POST /api/monitor` - Add a contract to monitor
-  ```json
-  { "address": "0x...", "chain": "ethereum", "type": "Agent" }
-  ```
-- `GET /api/monitor` - List all monitors
-- `DELETE /api/monitor/:address` - Remove a monitor
-
-**Event Queries**
-- `GET /api/events?entityId=0x...&limit=50` - Query events
-- `GET /api/events/stats` - Get event statistics
-- `GET /api/events/timeline?interval=day` - Get event timeline
-- `POST /api/events/aggregate` - Run MongoDB aggregation
-
-### Monitoring Contracts
-
-When an epistery host creates a new contract (Agent, IdentityContract, etc.),
-it should notify epistery-scan to start monitoring:
-
+**Chain-First Search**
 ```bash
-curl -X POST http://localhost:3000/api/monitor \
-  -H "Content-Type: application/json" \
-  -d '{"address":"0x123...","chain":"ethereum","type":"Agent"}'
+# Search (queries chain directly)
+GET /api/search?q=0x330fE90a198283803B78c02BfFa5390Ec2f15d70&chain=polygon-amoy
+
+# Get address details (reads contract state from chain)
+GET /api/search/address/0x330fE90a198283803B78c02BfFa5390Ec2f15d70?chain=polygon-amoy
+
+# Get events (hybrid: cached or chain-fetched)
+GET /api/search/events/0x330fE90a198283803B78c02BfFa5390Ec2f15d70?chain=polygon-amoy&limit=200
+
+# Get transaction details (fetched from chain)
+GET /api/search/tx/0xbea85b7f...?chain=polygon-amoy
 ```
 
-## Architecture
+**On-Demand Fetching**
+```bash
+# Fetch events for specific block range
+POST /api/fetch/events
+{
+  "address": "0x330fE90a198283803B78c02BfFa5390Ec2f15d70",
+  "chain": "polygon-amoy",
+  "fromBlock": 33000000,
+  "toBlock": 33100000
+}
 
-**Database Collections:**
-- `entities` - Contract data indexed by address and type
-- `events` - Event records with timestamp, source, entityId, type, and arbitrary attributes
-- `monitors` - List of addresses being tracked
+# Fetch transaction details
+POST /api/fetch/transaction
+{
+  "hash": "0xbea85b7f...",
+  "chain": "polygon-amoy"
+}
 
-**Ingestion:**
-- Chain connectors normalize access across different blockchains
-- Contract interpreters know how to read each contract type (Agent, IdentityContract, CampaignWallet)
-- Polling manager refreshes data at configured intervals
+# Get current block number
+GET /api/fetch/block-number?chain=polygon-amoy
+```
 
-**API:**
-- Search handler provides Etherscan-like search
-- Monitor handler manages tracked addresses
-- Event handler queries and aggregates event data
+**Manual Monitoring**
+```bash
+# Add contract to index
+POST /api/monitor
+{
+  "address": "0x330fE90a198283803B78c02BfFa5390Ec2f15d70",
+  "chain": "polygon-amoy",
+  "type": "Agent"
+}
 
-## Contract Types
+# List monitors
+GET /api/monitor
 
-**Agent.sol** (`/rootz/epistery/contracts/Agent.sol`)
-- Domain host contracts
-- Manages access lists and agent attributes
-- Events: AccessGranted, AccessRevoked, AttributeSet
+# Remove monitor
+DELETE /api/monitor/0x330fE90a198283803B78c02BfFa5390Ec2f15d70?chain=polygon-amoy
+```
 
-**IdentityContract.sol** (`/rootz/epistery/contracts/IdentityContract.sol`)
-- Binds multiple browser devices into single identity (multisig)
-- Events: RivetAdded, RivetRemoved, ThresholdChanged
+## Event Interpretation
 
-**CampaignWallet.sol** (`/geistm/adnet-factory/contracts/CampaignWallet.sol`)
-- Operates ad campaigns in Adnet
-- Events: CampaignCreated, ImpressionRecorded, ClickRecorded, PaymentMade
+Epistery Scan understands Epistery contract events:
+
+**agent.ACLModified**
+```
+Raw: { owner: "0xc191...", addr: "0xB357...", listName: "epistery::editor", action: "add" }
+Displayed: "0xc191... added 0xB357... to epistery::editor"
+```
+
+**agent.AttributeSet**
+```
+Raw: { owner: "0xc191...", key: "@epistery/wiki", isPrivate: false }
+Displayed: "0xc191... set 🔓 public attribute @epistery/wiki"
+```
+
+**agent.AttributeDeleted**
+```
+Raw: { owner: "0xc191...", key: "@epistery/wiki" }
+Displayed: "0xc191... deleted attribute @epistery/wiki"
+```
+
+**agent.OwnershipTransferred**
+```
+Raw: { previousOwner: "0xc191...", newOwner: "0xe75F..." }
+Displayed: "Ownership transferred from 0xc191... to 0xe75F..."
+```
+
+## State Reconstruction
+
+The **Object Data** tab reconstructs current contract state by replaying events chronologically:
+
+**Access Control Lists:**
+- Tracks `add`/`remove` actions per list
+- Shows current members with dates added
+- Groups by list name (epistery::admin, epistery::editor, etc.)
+
+**Attributes:**
+- Tracks `set`/`delete` operations
+- Shows privacy status (🔒 private / 🔓 public)
+- Displays last modified timestamp
+
+**Ownership:**
+- Tracks OwnershipTransferred events
+- Shows current owner
+
+All state is computed live from events - no separate state storage.
+
+## Development
+
+**Code Style:**
+- Raw JavaScript (no React/Vue/Angular)
+- ES modules
+- Minimal abstractions
+- Chain-first queries
+- MongoDB for indexing only
+
+**Key Files:**
+- `index.mjs` - Server setup with administrate SSL
+- `handlers/Search.mjs` - Chain-first search implementation
+- `handlers/Fetch.mjs` - On-demand data fetching
+- `ingestion/ChainConnector.mjs` - Blockchain RPC interface
+- `ingestion/interpreters/AgentInterpreter.mjs` - Agent.sol event parsing
+- `db/Database.mjs` - Minimal MongoDB operations
+- `public/index.html` - Single-file UI with event interpretation
+
+**Testing queries:**
+```bash
+# Local testing
+mongosh "mongodb://username:password@host:port/database?authSource=admin&directConnection=true"
+
+# Check connection from app
+curl http://localhost/health
+```
 
 ## Reference
 
-* /rootz/epistery - The core module that establishes the capabilities and purpose of this system
-* /epistery/ - See CLAUDE.md. This is a folder of agents built with epistery
-* /metric-im/metric-server - We will borrow heavily from this module to govern how we store, query and present event data
-* /metric-im/componentry - a lightweight framework for componentized widgets.
-* /rootz/rhonda - An example app built with componentry
-* /epistery/wiki - An example app for epistery integration and access control
-* run `epistery https://wiki.rootz.global/` - A wiki with more context and insight into the epistery concept.
+**Core Epistery:**
+- `/rootz/epistery` - Core epistery module
+- `/rootz/epistery/contracts/Agent.sol` - Agent contract source
+- `https://wiki.rootz.global` - Epistery documentation
 
+**Related Projects:**
+- `/epistery/epistery-host` - Domain host implementation (uses administrate)
+- `/epistery/wiki` - Wiki agent (reference for epistery integration)
+- `/geistm/adnet-agent` - Adnet agent implementation
+- `/metric-im/componentry` - UI component framework
+- `/metric-im/administrate` - Automatic SSL provisioning
+
+**Examples:**
+- `epistery curl https://wiki.rootz.global/wiki/Home` - Access epistery wiki
+- Search `0x330fE90a198283803B78c02BfFa5390Ec2f15d70` on epistery.io
+- View wallet `0xc191714b9c925063e4782691C36b8ff0605f6a6B` activity
+
+## License
+
+UNLICENSED - Proprietary

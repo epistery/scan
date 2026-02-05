@@ -314,6 +314,9 @@ export default class SearchHandler {
       .limit(1)
       .toArray();
 
+    // Check entity for creation block
+    const entity = await this.db.collection('entities').findOne({ address: addressRegex });
+
     // Otherwise fetch from chain
     const connector = this.ingestion?.connectors[chain];
     if (!connector) throw new Error(`Chain ${chain} not configured`);
@@ -329,9 +332,12 @@ export default class SearchHandler {
       // Start from oldest cached event
       const oldestEvent = cachedEvents[cachedEvents.length - 1];
       from = oldestEvent.blockNumber || 0;
+    } else if (entity?._created) {
+      // Entity exists, search from a reasonable time before creation (500k blocks)
+      from = Math.max(0, currentBlock - 500000);
     } else {
-      // No cache, search recent blocks (last 100000)
-      from = Math.max(0, currentBlock - 100000);
+      // No cache, search recent blocks (last 200000)
+      from = Math.max(0, currentBlock - 200000);
     }
 
     to = toBlock === 'latest' ? currentBlock : parseInt(toBlock);
@@ -345,12 +351,25 @@ export default class SearchHandler {
       toBlock: to
     });
 
-    // Parse logs into events using the Agent ABI
+    // Parse logs into events using combined ABI for all epistery contract types
     const abi = [
+      // Agent events
       'event ACLModified(address indexed owner, string listName, address indexed addr, string action, uint256 timestamp)',
       'event AttributeSet(address indexed owner, string key, bool isPrivate, uint256 timestamp)',
       'event AttributeDeleted(address indexed owner, string key, bool isPrivate, uint256 timestamp)',
-      'event OwnershipTransferred(address indexed previousOwner, address indexed newOwner, uint256 timestamp)'
+      'event OwnershipTransferred(address indexed previousOwner, address indexed newOwner, uint256 timestamp)',
+      // OpenZeppelin standard events
+      'event OwnershipTransferred(address indexed previousOwner, address indexed newOwner)',
+      'event RoleGranted(bytes32 indexed role, address indexed account, address indexed sender)',
+      'event RoleRevoked(bytes32 indexed role, address indexed account, address indexed sender)',
+      // CampaignWallet v2 events
+      'event BatchSubmitted(address indexed publisher, string ipfsCID, uint256 payout, bytes32 lastHash)',
+      'event Withdrawn(address indexed publisher, uint256 amount)',
+      'event PromotionAdded(string promotionId, string creative)',
+      'event PromotionUpdated(uint256 indexed index, bool active)',
+      'event CampaignPaused(address indexed by)',
+      'event CampaignUnpaused(address indexed by)',
+      'event BudgetAdded(address indexed from, uint256 amount)'
     ];
 
     const iface = new (await import('ethers')).ethers.Interface(abi);
@@ -359,8 +378,29 @@ export default class SearchHandler {
     for (const log of logs) {
       try {
         const parsed = iface.parseLog(log);
+
+        // Determine event category
+        let eventType = 'unknown';
+        const eventName = parsed.name;
+
+        if (['ACLModified', 'AttributeSet', 'AttributeDeleted'].includes(eventName)) {
+          eventType = `agent.${eventName}`;
+        } else if (eventName === 'OwnershipTransferred') {
+          // Detect if this is Agent or OpenZeppelin version by checking arg names
+          if (parsed.fragment.inputs.find(i => i.name === 'timestamp')) {
+            eventType = 'agent.OwnershipTransferred';
+          } else {
+            eventType = 'system.OwnershipTransferred';
+          }
+        } else if (['RoleGranted', 'RoleRevoked'].includes(eventName)) {
+          eventType = `system.${eventName}`;
+        } else if (['BatchSubmitted', 'Withdrawn', 'PromotionAdded', 'PromotionUpdated',
+                    'CampaignPaused', 'CampaignUnpaused', 'BudgetAdded'].includes(eventName)) {
+          eventType = `campaign.${eventName}`;
+        }
+
         parsedEvents.push({
-          type: `agent.${parsed.name}`,
+          type: eventType,
           blockNumber: log.blockNumber,
           transactionHash: log.transactionHash,
           address: log.address,

@@ -39,7 +39,7 @@ function getMongoHost() {
     const password = secrets.mongo.password;
 
     if (username && password) {
-      return `mongodb://${username}:${password}@${host}:${port}/${database}?authSource=admin`;
+      return `mongodb://${username}:${password}@${host}:${port}/${database}?authSource=admin&directConnection=true`;
     } else {
       return `mongodb://${host}:${port}/${database}`;
     }
