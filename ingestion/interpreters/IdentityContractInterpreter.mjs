@@ -29,7 +29,11 @@ export default class IdentityContractInterpreter {
     ];
   }
 
-  async syncContract(address, chain) {
+  getSchema() {
+    return { source: 'blockchain', tabs: ['overview', 'transactions', 'events', 'data'] };
+  }
+
+  async sync(address, chain) {
     const connector = this.connector[chain];
     if (!connector) throw new Error(`No connector for chain: ${chain}`);
 

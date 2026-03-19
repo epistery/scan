@@ -15,6 +15,7 @@ export default class Database {
     this.events = this.db.collection('events');
     this.monitors = this.db.collection('monitors');
     this.transactions = this.db.collection('transactions');
+    this.domains = this.db.collection('domains');
   }
 
   /**
@@ -45,6 +46,11 @@ export default class Database {
     await this.transactions.createIndex({ to: 1 });
     await this.transactions.createIndex({ blockNumber: -1 });
     await this.transactions.createIndex({ timestamp: -1 });
+
+    // Domain indexes (AI discovery crawl state)
+    await this.domains.createIndex({ domain: 1 }, { unique: true });
+    await this.domains.createIndex({ active: 1 });
+    await this.domains.createIndex({ lastChecked: 1 });
 
     console.log('[db] Database indexes created');
   }
@@ -264,6 +270,58 @@ export default class Database {
   /**
    * Get transactions for an address
    */
+  /**
+   * Add or update a domain for AI discovery tracking
+   */
+  async addDomain(domainRecord) {
+    const now = new Date();
+    const doc = {
+      domain: domainRecord.domain,
+      active: domainRecord.active !== false,
+      discoveredFrom: domainRecord.discoveredFrom || null,
+      status: domainRecord.status || 'pending',
+      lastChecked: domainRecord.lastChecked || null,
+      nextCheck: domainRecord.nextCheck || now,
+      _created: now,
+      _modified: now
+    };
+
+    await this.domains.replaceOne(
+      { domain: domainRecord.domain },
+      doc,
+      { upsert: true }
+    );
+
+    return doc;
+  }
+
+  /**
+   * Get a domain record
+   */
+  async getDomain(domain) {
+    return await this.domains.findOne({ domain });
+  }
+
+  /**
+   * Get all active domains due for checking
+   */
+  async getActiveDomains() {
+    return await this.domains.find({
+      active: true,
+      nextCheck: { $lte: new Date() }
+    }).toArray();
+  }
+
+  /**
+   * Deactivate a domain
+   */
+  async deactivateDomain(domain) {
+    return await this.domains.updateOne(
+      { domain },
+      { $set: { active: false, _modified: new Date() } }
+    );
+  }
+
   async getTransactionsForAddress(address, options = {}) {
     const limit = options.limit || 50;
     const skip = options.skip || 0;

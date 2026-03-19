@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Epistery Scan - Blockchain Explorer</title>
+  <title>Epistery Scan</title>
   <style>
     * {
       margin: 0;
@@ -33,6 +33,15 @@
       font-size: 0.9rem;
       color: #666;
       margin-top: 0.25rem;
+      max-width: 700px;
+      line-height: 1.5;
+    }
+
+    .header p code {
+      background: #f0f0f0;
+      padding: 0.1rem 0.3rem;
+      border-radius: 3px;
+      font-size: 0.85rem;
     }
 
     .container {
@@ -210,8 +219,10 @@
     .badge.agent { background: #e3f2fd; color: #1976d2; }
     .badge.identity { background: #f3e5f5; color: #7b1fa2; }
     .badge.campaign { background: #fff3e0; color: #e65100; }
+    .badge.aidiscovery { background: #e8f5e9; color: #2e7d32; }
     .badge.ethereum { background: #eceff1; color: #455a64; }
     .badge.polygon { background: #f3e5f5; color: #8e24aa; }
+    .badge.web { background: #e0f7fa; color: #00695c; }
 
     .suggestion {
       background: #fff3cd;
@@ -229,25 +240,69 @@
       border-radius: 4px;
       cursor: pointer;
     }
+
+    .manifest-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 1rem 0;
+    }
+
+    .manifest-table th {
+      background: #f0f0f0;
+      text-align: left;
+      padding: 0.75rem;
+      border: 1px solid #e0e0e0;
+      font-size: 0.9rem;
+    }
+
+    .manifest-table td {
+      padding: 0.75rem;
+      border: 1px solid #e0e0e0;
+      font-size: 0.9rem;
+      word-break: break-word;
+    }
+
+    .manifest-table tr:nth-child(even) {
+      background: #fafafa;
+    }
+
+    .verification-badge {
+      display: inline-block;
+      padding: 0.25rem 0.75rem;
+      border-radius: 3px;
+      font-size: 0.8rem;
+      font-weight: 600;
+    }
+
+    .verification-badge.verified { background: #c8e6c9; color: #2e7d32; }
+    .verification-badge.signed { background: #fff9c4; color: #f57f17; }
+    .verification-badge.unsigned { background: #ffcdd2; color: #c62828; }
   </style>
 </head>
 <body>
   <div class="header">
     <h1>Epistery Scan</h1>
-    <p>Cross-chain blockchain explorer for the Epistery ecosystem</p>
+    <p>Epistery Scan indexes Epistery blockchain contracts and AI Discovery manifests. Search by contract address, transaction hash, or domain name. Domains that publish <code>/.well-known/ai</code> are indexed automatically.</p>
+    <p style="margin-top: 0.5rem;"><a href="/discovery" style="color: #3498db; text-decoration: none;">AI Discovery &rarr;</a></p>
   </div>
 
   <div class="container">
     <div class="search-box">
-      <h2>Search Blockchain</h2>
+      <h2>Search</h2>
       <div class="search-input-group">
         <input
           type="text"
           class="search-input"
           id="searchInput"
-          placeholder="Search by Address or Transaction Hash (0x...)"
+          placeholder="Search by address, transaction, or domain..."
         >
         <button class="search-button" onclick="search()">Search</button>
+      </div>
+      <div style="margin-top: 0.75rem; font-size: 0.85rem; color: #888; line-height: 1.6;">
+        <code>0x...</code> &mdash; blockchain contract or wallet address &nbsp;|&nbsp;
+        <code>0x... (64 chars)</code> &mdash; transaction hash &nbsp;|&nbsp;
+        <code>rootz.global</code> &mdash; domain with AI discovery manifest &nbsp;|&nbsp;
+        Text &mdash; search indexed entities by name
       </div>
     </div>
 
@@ -278,15 +333,16 @@
   </div>
 
   <script>
-    // Tab switching
-    document.querySelectorAll('.tab').forEach(tab => {
-      tab.addEventListener('click', () => {
-        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-        document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+    // Tab switching via event delegation (works for dynamically created tabs)
+    document.querySelector('.tabs').addEventListener('click', (e) => {
+      const tab = e.target.closest('.tab');
+      if (!tab) return;
 
-        tab.classList.add('active');
-        document.getElementById(tab.dataset.tab).classList.add('active');
-      });
+      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+
+      tab.classList.add('active');
+      document.getElementById(tab.dataset.tab).classList.add('active');
     });
 
     // Search on Enter key
@@ -312,10 +368,33 @@
     }
 
     function showLoading() {
+      // Restore default tabs (may have been replaced by AIDiscovery)
+      resetToDefaultTabs();
       document.getElementById('overview').innerHTML = '<div class="loading">Loading...</div>';
       document.getElementById('transactions').innerHTML = '<div class="empty-state">No transactions found</div>';
       document.getElementById('events').innerHTML = '<div class="empty-state">No events found</div>';
       document.getElementById('data').innerHTML = '<div class="empty-state">No data found</div>';
+    }
+
+    function resetToDefaultTabs() {
+      const resultsEl = document.getElementById('results');
+
+      // Restore tab bar
+      document.querySelector('.tabs').innerHTML = `
+        <button class="tab active" data-tab="overview">Overview</button>
+        <button class="tab" data-tab="transactions">Transactions</button>
+        <button class="tab" data-tab="events">Events</button>
+        <button class="tab" data-tab="data">Object Data</button>
+      `;
+
+      // Restore tab content divs
+      resultsEl.querySelectorAll('.tab-content').forEach(el => el.remove());
+      resultsEl.insertAdjacentHTML('beforeend', `
+        <div class="tab-content active" id="overview"><div class="loading">Loading...</div></div>
+        <div class="tab-content" id="transactions"><div class="empty-state">No transactions found</div></div>
+        <div class="tab-content" id="events"><div class="empty-state">No events found</div></div>
+        <div class="tab-content" id="data"><div class="empty-state">No data found</div></div>
+      `);
     }
 
     function showError(message) {
@@ -340,12 +419,48 @@
       } else if (data.suggestion) {
         displaySuggestion(data.suggestion);
       } else {
-        document.getElementById('overview').innerHTML = '<div class="empty-state">No results found</div>';
+        // For domain-like queries, point to discovery page
+        const q = document.getElementById('searchInput').value.trim();
+        if (q.includes('.') && !q.startsWith('0x')) {
+          document.getElementById('overview').innerHTML =
+            '<div class="empty-state">No blockchain results for this domain.<br>' +
+            '<small style="color:#999;">Looking for AI discovery? <a href="/discovery" style="color:#3498db;">Check the AI Discovery page</a></small></div>';
+        } else {
+          document.getElementById('overview').innerHTML = '<div class="empty-state">No results found</div>';
+        }
       }
     }
 
     function displayEntities(entities) {
-      const html = entities.map(entity => `
+      // Check if any entity is AIDiscovery — use dedicated renderer
+      const aiEntities = entities.filter(e => e.type === 'AIDiscovery');
+      if (aiEntities.length > 0 && aiEntities.length === entities.length) {
+        displayAIDiscovery(aiEntities);
+        return;
+      }
+
+      // Store entities for click-through from mixed results
+      window._lastEntities = entities;
+
+      const html = entities.map((entity, idx) => {
+        if (entity.type === 'AIDiscovery') {
+          // Inline summary card for mixed results
+          const manifest = entity.metadata?.manifest || {};
+          const org = manifest.organization || {};
+          return `
+          <div class="entity-card" style="cursor:pointer;" onclick="displayAIDiscovery([window._lastEntities[${idx}]])">
+            <h3>
+              <span class="badge aidiscovery">AIDiscovery</span>
+              <span class="badge web">web</span>
+            </h3>
+            <div class="address"><a href="https://${entity.address}" target="_blank">${entity.address}</a></div>
+            <div class="meta">
+              ${org.name ? `<span><strong>Org:</strong> ${org.name}</span>` : ''}
+              ${org.description ? `<span>${org.description}</span>` : ''}
+            </div>
+          </div>`;
+        }
+        return `
         <div class="entity-card">
           <h3>
             <span class="badge ${entity.type.toLowerCase()}">${entity.type}</span>
@@ -360,9 +475,220 @@
             ${entity.lastProcessedBlock ? `<span><strong>Last block scanned:</strong> ${entity.lastProcessedBlock}</span>` : ''}
           </div>
         </div>
-      `).join('');
+      `;
+      }).join('');
 
       document.getElementById('overview').innerHTML = html;
+    }
+
+    function displayAIDiscovery(entities) {
+      // Take the first entity for full display
+      const entity = entities[0];
+      const manifest = entity.metadata?.manifest || {};
+      const verification = entity.metadata?.verification;
+      const org = manifest.organization || {};
+
+      // Rewrite tabs for AIDiscovery
+      document.querySelector('.tabs').innerHTML = `
+        <button class="tab active" data-tab="overview">Overview</button>
+        <button class="tab" data-tab="pages">Pages</button>
+        <button class="tab" data-tab="apis">APIs</button>
+        <button class="tab" data-tab="policies">Policies</button>
+        <button class="tab" data-tab="concepts">Concepts</button>
+        <button class="tab" data-tab="raw">Raw JSON</button>
+      `;
+
+      // Create tab content containers
+      const resultsEl = document.getElementById('results');
+      // Remove old tab content divs
+      resultsEl.querySelectorAll('.tab-content').forEach(el => el.remove());
+
+      // Build Overview
+      let overviewHtml = '<div class="tab-content active" id="overview">';
+
+      // Domain header with verification badge
+      let badgeClass = 'unsigned';
+      let badgeText = 'Unsigned';
+      if (verification?.hashValid) {
+        badgeClass = 'verified';
+        badgeText = 'Verified';
+      } else if (verification?.signed) {
+        badgeClass = 'signed';
+        badgeText = 'Signed';
+      }
+
+      overviewHtml += `<h3>
+        <a href="https://${entity.address}" target="_blank" style="color:#3498db;">${entity.address}</a>
+        <span class="verification-badge ${badgeClass}">${badgeText}</span>
+      </h3>`;
+
+      // Organization table
+      if (org.name || org.domain || org.description) {
+        overviewHtml += '<h4 style="margin-top:1.5rem;">Organization</h4>';
+        overviewHtml += '<table class="manifest-table"><tbody>';
+        if (org.name) overviewHtml += `<tr><th>Name</th><td>${org.name}</td></tr>`;
+        if (org.domain) overviewHtml += `<tr><th>Domain</th><td>${org.domain}</td></tr>`;
+        if (org.description) overviewHtml += `<tr><th>Description</th><td>${org.description}</td></tr>`;
+        overviewHtml += '</tbody></table>';
+      }
+
+      // Capabilities table
+      const caps = manifest.capabilities || {};
+      const capKeys = Object.keys(caps);
+      if (capKeys.length > 0) {
+        overviewHtml += '<h4 style="margin-top:1.5rem;">Capabilities</h4>';
+        overviewHtml += '<table class="manifest-table"><thead><tr><th>Capability</th><th>Details</th></tr></thead><tbody>';
+        for (const key of capKeys) {
+          const val = caps[key];
+          let detail = '';
+          if (typeof val === 'boolean') {
+            detail = val ? 'Available' : 'Not available';
+          } else if (typeof val === 'object' && val !== null) {
+            detail = val.description || (val.available ? 'Available' : 'Configured');
+            if (val.url) detail += ` &mdash; <code>${val.url}</code>`;
+          } else {
+            detail = String(val);
+          }
+          overviewHtml += `<tr><td><strong>${key}</strong></td><td>${detail}</td></tr>`;
+        }
+        overviewHtml += '</tbody></table>';
+      }
+
+      // Stats table
+      if (manifest.stats) {
+        overviewHtml += '<h4 style="margin-top:1.5rem;">Stats</h4>';
+        overviewHtml += '<table class="manifest-table"><tbody>';
+        for (const [key, val] of Object.entries(manifest.stats)) {
+          overviewHtml += `<tr><th>${key}</th><td>${val}</td></tr>`;
+        }
+        overviewHtml += '</tbody></table>';
+      }
+
+      // Instructions
+      if (manifest.instructions) {
+        overviewHtml += '<h4 style="margin-top:1.5rem;">Instructions</h4>';
+        if (manifest.instructions.forAI) {
+          overviewHtml += `<div style="margin:0.5rem 0;padding:1rem;background:#f9f9f9;border-radius:4px;border-left:3px solid #3498db;font-size:0.9rem;">
+            <strong>For AI:</strong> ${manifest.instructions.forAI}
+          </div>`;
+        }
+        if (manifest.instructions.rateLimit) {
+          overviewHtml += `<div style="margin:0.5rem 0;padding:1rem;background:#f9f9f9;border-radius:4px;border-left:3px solid #f39c12;font-size:0.9rem;">
+            <strong>Rate Limit:</strong> ${manifest.instructions.rateLimit}
+          </div>`;
+        }
+      }
+
+      // Contact
+      if (manifest.contact) {
+        overviewHtml += '<h4 style="margin-top:1.5rem;">Contact</h4>';
+        overviewHtml += '<table class="manifest-table"><tbody>';
+        for (const [key, val] of Object.entries(manifest.contact)) {
+          const display = (typeof val === 'string' && val.startsWith('http'))
+            ? `<a href="${val}" target="_blank">${val}</a>` : val;
+          overviewHtml += `<tr><th>${key}</th><td>${display}</td></tr>`;
+        }
+        overviewHtml += '</tbody></table>';
+      }
+
+      overviewHtml += '</div>';
+
+      // Build APIs tab
+      let apisHtml = '<div class="tab-content" id="apis">';
+      const apis = manifest.apis || {};
+      const apiKeys = Object.keys(apis);
+      if (apiKeys.length > 0) {
+        apisHtml += '<table class="manifest-table"><thead><tr><th>Name</th><th>URL</th><th>Method</th><th>Description</th></tr></thead><tbody>';
+        for (const key of apiKeys) {
+          const api = apis[key];
+          const method = api.method || (api.methods ? api.methods.join(', ') : 'GET');
+          apisHtml += `<tr><td><strong>${key}</strong></td><td><code>${api.url || ''}</code></td><td>${method}</td><td>${api.description || ''}</td></tr>`;
+        }
+        apisHtml += '</tbody></table>';
+      } else {
+        apisHtml += '<div class="empty-state">No APIs declared</div>';
+      }
+      apisHtml += '</div>';
+
+      // Build Pages tab
+      let pagesHtml = '<div class="tab-content" id="pages">';
+      const pages = manifest.pages || [];
+      if (pages.length > 0) {
+        pagesHtml += '<table class="manifest-table"><thead><tr><th>Path</th><th>Title</th><th>Purpose</th><th>Concepts</th></tr></thead><tbody>';
+        for (const p of pages) {
+          const pageUrl = `https://${entity.address}${p.path}`;
+          const conceptTags = (p.concepts || []).map(c => `<span class="badge" style="margin:0.1rem;">${c}</span>`).join(' ');
+          const purpose = p.purpose || '';
+          pagesHtml += `<tr>
+            <td><a href="${pageUrl}" target="_blank"><code>${p.path}</code></a></td>
+            <td>${p.title || ''}</td>
+            <td>${purpose}</td>
+            <td>${conceptTags}</td>
+          </tr>`;
+        }
+        pagesHtml += '</tbody></table>';
+      } else {
+        pagesHtml += '<div class="empty-state">No pages declared</div>';
+      }
+      pagesHtml += '</div>';
+
+      // Build Policies tab
+      let policiesHtml = '<div class="tab-content" id="policies">';
+      const policies = manifest.policies || {};
+      const policyKeys = Object.keys(policies).filter(k => k !== 'detailsUrl');
+      if (policyKeys.length > 0 || policies.detailsUrl) {
+        policiesHtml += '<table class="manifest-table"><thead><tr><th>Policy</th><th>Details</th></tr></thead><tbody>';
+        for (const key of policyKeys) {
+          const pol = policies[key];
+          let detail = '';
+          if (typeof pol === 'string') {
+            detail = pol.startsWith('http') ? `<a href="${pol}" target="_blank">${pol}</a>` : pol;
+          } else if (typeof pol === 'object' && pol !== null) {
+            const parts = [];
+            if (pol.type) parts.push(`<strong>${pol.type}</strong>`);
+            if (pol.url) parts.push(`<a href="${pol.url}" target="_blank">${pol.url}</a>`);
+            if (pol.restrictions) parts.push(`Restrictions: ${pol.restrictions.join(', ')}`);
+            // Show any other fields
+            for (const [k, v] of Object.entries(pol)) {
+              if (!['type', 'url', 'restrictions'].includes(k)) {
+                parts.push(`${k}: ${typeof v === 'object' ? JSON.stringify(v) : v}`);
+              }
+            }
+            detail = parts.join('<br>');
+          }
+          policiesHtml += `<tr><td><strong>${key}</strong></td><td>${detail}</td></tr>`;
+        }
+        if (policies.detailsUrl) {
+          const detailsUrl = policies.detailsUrl.startsWith('http')
+            ? policies.detailsUrl
+            : `https://${entity.address}${policies.detailsUrl}`;
+          policiesHtml += `<tr><td><strong>Full Details</strong></td><td><a href="${detailsUrl}" target="_blank">${policies.detailsUrl}</a></td></tr>`;
+        }
+        policiesHtml += '</tbody></table>';
+      } else {
+        policiesHtml += '<div class="empty-state">No policies declared</div>';
+      }
+      policiesHtml += '</div>';
+
+      // Build Concepts tab
+      let conceptsHtml = '<div class="tab-content" id="concepts">';
+      const concepts = manifest.coreConcepts || [];
+      if (concepts.length > 0) {
+        conceptsHtml += '<table class="manifest-table"><thead><tr><th>Term</th><th>Definition</th></tr></thead><tbody>';
+        for (const c of concepts) {
+          conceptsHtml += `<tr><td><strong>${c.term}</strong></td><td>${c.definition}</td></tr>`;
+        }
+        conceptsHtml += '</tbody></table>';
+      } else {
+        conceptsHtml += '<div class="empty-state">No core concepts declared</div>';
+      }
+      conceptsHtml += '</div>';
+
+      // Build Raw JSON tab
+      const rawHtml = `<div class="tab-content" id="raw"><pre style="white-space:pre-wrap;word-break:break-word;font-size:0.85rem;">${JSON.stringify(manifest, null, 2).replace(/</g, '&lt;').replace(/>/g, '&gt;')}</pre></div>`;
+
+      // Append all tab content
+      resultsEl.insertAdjacentHTML('beforeend', overviewHtml + pagesHtml + apisHtml + policiesHtml + conceptsHtml + rawHtml);
     }
 
     function displaySuggestion(suggestion) {

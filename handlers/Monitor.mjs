@@ -39,8 +39,8 @@ export default class MonitorHandler {
           });
         }
 
-        // Validate contract type
-        const validTypes = ['Agent', 'IdentityContract', 'CampaignWallet'];
+        // Validate entity type against registry
+        const validTypes = this.ingestion?.registry?.list() || [];
         if (!validTypes.includes(type)) {
           return res.status(400).json({
             error: `Invalid type. Must be one of: ${validTypes.join(', ')}`

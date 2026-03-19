@@ -45,7 +45,11 @@ export default class CampaignWalletInterpreter {
   /**
    * Sync a contract - read current state and record as entity
    */
-  async syncContract(address, chain) {
+  getSchema() {
+    return { source: 'blockchain', tabs: ['overview', 'transactions', 'events', 'data'] };
+  }
+
+  async sync(address, chain) {
     const connector = this.connector[chain];
     if (!connector) throw new Error(`No connector for chain: ${chain}`);
 
@@ -144,5 +148,24 @@ export default class CampaignWalletInterpreter {
 
     console.log(`[interpreter:campaign] Processed ${eventRecords.length} events for ${address}`);
     return eventRecords;
+  }
+
+  async getSummary(address, chain) {
+    const entity = await this.database.getEntity(address);
+    if (!entity) return null;
+
+    const events = await this.database.getEntityEvents(address, { limit: 10 });
+
+    return {
+      address,
+      type: this.type,
+      chain,
+      name: entity.metadata?.name,
+      advertiser: entity.metadata?.advertiser,
+      active: entity.metadata?.active,
+      promotionCount: entity.metadata?.promotionCount,
+      recentEvents: events.length,
+      lastActivity: events[0]?.timestamp
+    };
   }
 }

@@ -216,11 +216,28 @@ export default class SearchHandler {
     }
     // Text search - use MongoDB index
     else {
+      const searchRegex = new RegExp(q, 'i');
+
+      // Domain-like queries (contains a dot) trigger on-demand discovery check
+      if (q.includes('.') && this.ingestion?.domainDiscovery) {
+        const existing = await this.db.collection('entities').findOne({
+          address: q, type: 'AIDiscovery'
+        });
+        if (!existing) {
+          // Try to discover in background, don't block the search
+          this.ingestion.domainDiscovery.checkDomain(q).catch(console.error);
+        }
+      }
+
       const entities = await this.db.collection('entities')
         .find({
           $or: [
-            { 'metadata.domain': new RegExp(q, 'i') },
-            { 'metadata.owner': new RegExp(q, 'i') }
+            { 'metadata.domain': searchRegex },
+            { 'metadata.owner': searchRegex },
+            { 'metadata.manifest.organization.name': searchRegex },
+            { 'metadata.manifest.coreConcepts.term': searchRegex },
+            { 'metadata.manifest.applications.name': searchRegex },
+            { address: searchRegex, type: 'AIDiscovery' }
           ]
         })
         .limit(20)
@@ -229,7 +246,14 @@ export default class SearchHandler {
       if (entities.length > 0) {
         results.found = true;
         results.type = 'search';
-        results.data = entities;
+        // Attach schema from registry so the UI knows how to render each type
+        results.data = entities.map(entity => {
+          const interpreter = this.ingestion?.registry?.get(entity.type);
+          if (interpreter) {
+            entity.schema = interpreter.getSchema();
+          }
+          return entity;
+        });
       }
     }
 
