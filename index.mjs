@@ -6,7 +6,7 @@ import cors from 'cors';
 import morgan from 'morgan';
 import mongodb from 'mongodb';
 import { readFileSync } from 'fs';
-import { Config } from 'epistery';
+import { Config, Epistery } from 'epistery';
 import { Certify } from '@metric-im/administrate';
 import Componentry from '@metric-im/componentry';
 import Database from './db/Database.mjs';
@@ -16,6 +16,7 @@ import MonitorHandler from './handlers/Monitor.mjs';
 import EventHandler from './handlers/Event.mjs';
 import FetchHandler from './handlers/Fetch.mjs';
 import DiscoveryHandler from './handlers/Discovery.mjs';
+import FeedHandler from './handlers/Feed.mjs';
 
 const config = new Config();
 await config.setPath('/');
@@ -123,6 +124,11 @@ class EpisteryScan {
     this.app.use(express.urlencoded({ extended: true }));
     this.app.use(cookieParser());
 
+    // Epistery middleware — gives every visitor a device wallet
+    const epistery = await Epistery.connect();
+    await epistery.attach(this.app);
+    this.app.locals.epistery = epistery;
+
     // Serve static files for UI
     this.app.use('/static', express.static('public'));
 
@@ -132,11 +138,13 @@ class EpisteryScan {
     const eventHandler = new EventHandler(this.connector);
     const fetchHandler = new FetchHandler(this.connector);
     const discoveryHandler = new DiscoveryHandler(this.connector);
+    const feedHandler = new FeedHandler(this.connector);
 
     // Link handlers to ingestion
     monitorHandler.setIngestion(this.ingestion);
     searchHandler.setIngestion(this.ingestion);
     fetchHandler.setIngestion(this.ingestion);
+    feedHandler.setIngestion(this.ingestion);
     discoveryHandler.setDomainDiscovery(this.ingestion.domainDiscovery);
 
     // Mount API routes
@@ -145,6 +153,7 @@ class EpisteryScan {
     this.app.use('/api/events', eventHandler.routes());
     this.app.use('/api/fetch', fetchHandler.routes());
     this.app.use('/api/discovery', discoveryHandler.routes());
+    this.app.use('/api/feed', feedHandler.routes());
 
     // Serve /.well-known/ai discovery manifest
     this.app.get('/.well-known/ai', async (req, res) => {

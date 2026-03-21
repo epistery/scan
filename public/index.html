@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Epistery Scan</title>
+  <script src="/.well-known/epistery/lib/client.js"></script>
   <style>
     * {
       margin: 0;
@@ -277,6 +278,89 @@
     .verification-badge.verified { background: #c8e6c9; color: #2e7d32; }
     .verification-badge.signed { background: #fff9c4; color: #f57f17; }
     .verification-badge.unsigned { background: #ffcdd2; color: #c62828; }
+
+    .follow-btn {
+      padding: 0.35rem 0.75rem;
+      border-radius: 4px;
+      font-size: 0.8rem;
+      cursor: pointer;
+      font-weight: 600;
+      transition: all 0.2s;
+      float: right;
+    }
+
+    .follow-btn.follow {
+      background: #3498db;
+      color: white;
+      border: 2px solid #3498db;
+    }
+
+    .follow-btn.follow:hover {
+      background: #2980b9;
+      border-color: #2980b9;
+    }
+
+    .follow-btn.unfollow {
+      background: white;
+      color: #e74c3c;
+      border: 2px solid #e74c3c;
+    }
+
+    .follow-btn.unfollow:hover {
+      background: #e74c3c;
+      color: white;
+    }
+
+    .feed-follows {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      margin-bottom: 1.5rem;
+    }
+
+    .feed-follow-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      background: #e3f2fd;
+      color: #1976d2;
+      padding: 0.3rem 0.6rem;
+      border-radius: 3px;
+      font-size: 0.8rem;
+      font-family: monospace;
+    }
+
+    .feed-follow-tag .remove {
+      cursor: pointer;
+      color: #999;
+      font-weight: bold;
+      font-size: 0.9rem;
+      line-height: 1;
+    }
+
+    .feed-follow-tag .remove:hover {
+      color: #e74c3c;
+    }
+
+    .feed-event {
+      border-bottom: 1px solid #e0e0e0;
+      padding: 0.75rem 0;
+    }
+
+    .feed-event:last-child {
+      border-bottom: none;
+    }
+
+    .feed-event .feed-entity-label {
+      color: #3498db;
+      cursor: pointer;
+      font-family: monospace;
+      font-size: 0.85rem;
+    }
+
+    .feed-event .feed-entity-label:hover {
+      text-decoration: underline;
+    }
   </style>
 </head>
 <body>
@@ -308,10 +392,15 @@
 
     <div class="results" id="results" style="display: none;">
       <div class="tabs">
+        <button class="tab" data-tab="feed" style="display:none">Feed</button>
         <button class="tab active" data-tab="overview">Overview</button>
         <button class="tab" data-tab="transactions">Transactions</button>
         <button class="tab" data-tab="events">Events</button>
         <button class="tab" data-tab="data">Object Data</button>
+      </div>
+
+      <div class="tab-content" id="feed">
+        <div class="empty-state">Search for a contract, wallet, or domain and click <strong>Follow</strong> to build your feed.</div>
       </div>
 
       <div class="tab-content active" id="overview">
@@ -333,6 +422,162 @@
   </div>
 
   <script>
+    // --- Follow management (localStorage) ---
+    const FOLLOWS_KEY = 'epistery-scan-follows';
+
+    function getFollows() {
+      try {
+        let follows = JSON.parse(localStorage.getItem(FOLLOWS_KEY));
+        if (!follows || follows.length === 0) {
+          // Everyone follows #epistery by default
+          follows = [{ address: 'epistery.io', type: 'AIDiscovery', chain: 'web', label: 'epistery.io', followedAt: Date.now() }];
+          saveFollows(follows);
+        }
+        return follows;
+      } catch (e) {
+        return [{ address: 'epistery.io', type: 'AIDiscovery', chain: 'web', label: 'epistery.io', followedAt: Date.now() }];
+      }
+    }
+
+    function saveFollows(follows) {
+      try {
+        localStorage.setItem(FOLLOWS_KEY, JSON.stringify(follows));
+      } catch (e) {
+        console.warn('localStorage unavailable');
+      }
+    }
+
+    function addFollow(address, type, chain, label) {
+      const follows = getFollows();
+      if (follows.some(f => f.address.toLowerCase() === address.toLowerCase())) return;
+      follows.push({ address, type: type || '', chain: chain || '', label: label || address, followedAt: Date.now() });
+      saveFollows(follows);
+      updateFeedTabVisibility();
+    }
+
+    function removeFollow(address) {
+      const follows = getFollows().filter(f => f.address.toLowerCase() !== address.toLowerCase());
+      saveFollows(follows);
+      updateFeedTabVisibility();
+    }
+
+    function isFollowed(address) {
+      return getFollows().some(f => f.address.toLowerCase() === address.toLowerCase());
+    }
+
+    function followButtonHtml(address, type, chain, label) {
+      const safeAddr = address.replace(/'/g, "\\'");
+      const safeType = (type || '').replace(/'/g, "\\'");
+      const safeChain = (chain || '').replace(/'/g, "\\'");
+      const safeLabel = (label || address).replace(/'/g, "\\'");
+      if (isFollowed(address)) {
+        return `<button class="follow-btn unfollow" onclick="event.stopPropagation(); removeFollow('${safeAddr}'); this.outerHTML = followButtonHtml('${safeAddr}','${safeType}','${safeChain}','${safeLabel}');">Unfollow</button>`;
+      }
+      return `<button class="follow-btn follow" onclick="event.stopPropagation(); addFollow('${safeAddr}','${safeType}','${safeChain}','${safeLabel}'); this.outerHTML = followButtonHtml('${safeAddr}','${safeType}','${safeChain}','${safeLabel}');">Follow</button>`;
+    }
+
+    function updateFeedTabVisibility() {
+      const feedTab = document.querySelector('.tab[data-tab="feed"]');
+      if (!feedTab) return;
+      const hasFollows = getFollows().length > 0;
+      feedTab.style.display = hasFollows ? '' : 'none';
+      // If feed tab was active and no follows remain, switch to overview
+      if (!hasFollows && feedTab.classList.contains('active')) {
+        feedTab.classList.remove('active');
+        const feedContent = document.getElementById('feed');
+        if (feedContent) feedContent.classList.remove('active');
+        const overviewTab = document.querySelector('.tab[data-tab="overview"]');
+        if (overviewTab) {
+          overviewTab.classList.add('active');
+          document.getElementById('overview').classList.add('active');
+        }
+      }
+    }
+
+    async function loadFeed() {
+      const follows = getFollows();
+      if (follows.length === 0) return;
+
+      const feedEl = document.getElementById('feed');
+      if (!feedEl) return;
+      feedEl.innerHTML = '<div class="loading">Loading feed...</div>';
+
+      try {
+        const addresses = follows.map(f => f.address);
+        const response = await fetch('/api/feed', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ addresses, limit: 50 })
+        });
+        const data = await response.json();
+        renderFeed(data, follows);
+      } catch (error) {
+        feedEl.innerHTML = `<div class="empty-state">Failed to load feed: ${error.message}</div>`;
+      }
+    }
+
+    function renderFeed(data, follows) {
+      const feedEl = document.getElementById('feed');
+      if (!feedEl) return;
+
+      let html = '';
+
+      // Follow list summary with unfollow buttons
+      html += '<div class="feed-follows">';
+      follows.forEach(f => {
+        const shortAddr = f.label.length > 20 ? f.label.substring(0, 10) + '...' + f.label.substring(f.label.length - 6) : f.label;
+        const safeAddr = f.address.replace(/'/g, "\\'");
+        html += `<span class="feed-follow-tag">
+          ${shortAddr}
+          <span class="remove" onclick="removeFollow('${safeAddr}'); loadFeed();">&times;</span>
+        </span>`;
+      });
+      html += '</div>';
+
+      // Build entity lookup for labels
+      const entityMap = {};
+      if (data.entities) {
+        data.entities.forEach(e => {
+          entityMap[e.address.toLowerCase()] = e;
+        });
+      }
+
+      // Event feed
+      if (data.events && data.events.length > 0) {
+        data.events.forEach(event => {
+          const ts = event.timestamp > 10000000000 ? event.timestamp : event.timestamp * 1000;
+          const entity = entityMap[event.entityId?.toLowerCase()] || {};
+          const entityLabel = entity.address || event.entityId || '';
+          const shortLabel = entityLabel.length > 20 ? entityLabel.substring(0, 10) + '...' + entityLabel.substring(entityLabel.length - 6) : entityLabel;
+          const badgeType = (entity.type || '').toLowerCase();
+          const badgeChain = entity.chain || event.chain || '';
+          const safeSearch = entityLabel.replace(/'/g, "\\'");
+
+          html += `<div class="feed-event">
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+              <div>
+                ${badgeType ? `<span class="badge ${badgeType}">${entity.type}</span>` : ''}
+                ${badgeChain ? `<span class="badge ${badgeChain}">${badgeChain}</span>` : ''}
+                <span class="feed-entity-label" onclick="document.getElementById('searchInput').value='${safeSearch}'; search();">${shortLabel}</span>
+              </div>
+              <span class="event-time">${new Date(ts).toLocaleString()}</span>
+            </div>
+            <div class="event-type" style="margin-top:0.25rem;">${event.type || 'Unknown'}</div>
+          </div>`;
+        });
+
+        if (data.pagination && data.pagination.total > data.pagination.limit) {
+          html += `<div style="text-align:center; padding:1rem; color:#999; font-size:0.9rem;">
+            Showing ${data.events.length} of ${data.pagination.total} events
+          </div>`;
+        }
+      } else {
+        html += '<div class="empty-state">No recent activity for followed addresses</div>';
+      }
+
+      feedEl.innerHTML = html;
+    }
+
     // Tab switching via event delegation (works for dynamically created tabs)
     document.querySelector('.tabs').addEventListener('click', (e) => {
       const tab = e.target.closest('.tab');
@@ -378,9 +623,11 @@
 
     function resetToDefaultTabs() {
       const resultsEl = document.getElementById('results');
+      const hasFollows = getFollows().length > 0;
 
       // Restore tab bar
       document.querySelector('.tabs').innerHTML = `
+        <button class="tab" data-tab="feed" style="${hasFollows ? '' : 'display:none'}">Feed</button>
         <button class="tab active" data-tab="overview">Overview</button>
         <button class="tab" data-tab="transactions">Transactions</button>
         <button class="tab" data-tab="events">Events</button>
@@ -390,6 +637,7 @@
       // Restore tab content divs
       resultsEl.querySelectorAll('.tab-content').forEach(el => el.remove());
       resultsEl.insertAdjacentHTML('beforeend', `
+        <div class="tab-content" id="feed"><div class="empty-state">Search for a contract, wallet, or domain and click <strong>Follow</strong> to build your feed.</div></div>
         <div class="tab-content active" id="overview"><div class="loading">Loading...</div></div>
         <div class="tab-content" id="transactions"><div class="empty-state">No transactions found</div></div>
         <div class="tab-content" id="events"><div class="empty-state">No events found</div></div>
@@ -452,6 +700,7 @@
             <h3>
               <span class="badge aidiscovery">AIDiscovery</span>
               <span class="badge web">web</span>
+              ${followButtonHtml(entity.address, 'AIDiscovery', 'web', entity.address)}
             </h3>
             <div class="address"><a href="https://${entity.address}" target="_blank">${entity.address}</a></div>
             <div class="meta">
@@ -465,6 +714,7 @@
           <h3>
             <span class="badge ${entity.type.toLowerCase()}">${entity.type}</span>
             <span class="badge ${entity.chain}">${entity.chain}</span>
+            ${followButtonHtml(entity.address, entity.type, entity.chain, entity.metadata?.domain || entity.address)}
           </h3>
           <div class="address">${entity.address}</div>
           <div class="meta">
@@ -1132,6 +1382,25 @@
 
       document.getElementById('events').innerHTML = html || '<div class="empty-state">No events found</div>';
     }
+
+    // On page load: if user has follows, show feed as landing view
+    (function initFeed() {
+      const follows = getFollows();
+      if (follows.length > 0) {
+        // Show results container with feed tab active
+        document.getElementById('results').style.display = 'block';
+        const feedTab = document.querySelector('.tab[data-tab="feed"]');
+        if (feedTab) {
+          feedTab.style.display = '';
+          // Activate feed tab
+          document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+          document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+          feedTab.classList.add('active');
+          document.getElementById('feed').classList.add('active');
+          loadFeed();
+        }
+      }
+    })();
 
     function displayTransactions(transactions) {
       const html = transactions.map(tx => {

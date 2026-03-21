@@ -1,75 +1,189 @@
-# epistery-scan
+# Epistery Scan
 
-Epistery Scan is a blockchain explorer for the Epistery ecosystem - chain-first, not chain-specific.
+Cross-chain blockchain explorer and AI discovery indexer for the Epistery ecosystem.
 
 **Live at:** https://epistery.io
 
-## Philosophy: Chain-First Architecture
+Epistery Scan indexes two kinds of entities through a unified architecture:
 
-Unlike traditional blockchain explorers that cache everything, Epistery Scan treats **the blockchain as the source of truth**:
+- **Blockchain contracts** on Ethereum and Polygon (Agents, Identity Contracts, Campaign Wallets)
+- **AI Discovery manifests** published at `/.well-known/ai` per the [Rootz AI Discovery Standard](https://rootz.global/ai/standard.md)
 
-- **Search queries the chain directly** - Real-time contract state, no stale data
-- **Events fetched on-demand** - Read from chain when viewing a contract
-- **Transactions live-queried** - No storage, just direct RPC calls
-- **MongoDB is only an index** - Maps addresses to chains for faster lookups
-
-This approach:
-- Eliminates data synchronization issues
-- Reduces database storage by 95%
-- Makes efficient use of RPC quota (15M requests available)
-- Ensures data is always current
-
-## What It Does
-
-Epistery Scan understands Epistery contracts and presents blockchain data meaningfully:
-
-**For addresses:**
-- Detects if it's a contract or wallet
-- Reads epistery attributes (owner, sponsor, domain, version)
-- Shows human-readable event interpretations
-- Reconstructs current state (ACLs, attributes) from event history
-
-**For events:**
-- Interprets `agent.ACLModified` as "**0xc191...** added `0xB357...` to `epistery::editor`"
-- Shows `agent.AttributeSet` as "**0xc191...** set 🔓 public attribute `@epistery/wiki`"
-- Displays reconstructed object state (current ACL members, active attributes)
-
-**For contracts:**
-- Agent.sol - Domain hosts managing access lists
-- IdentityContract.sol - Multi-device identity binding
-- CampaignWallet.sol - Ad campaign management
+Both are treated as first-class entities. A domain publishing a signed manifest is architecturally equivalent to a blockchain contract -- DNS is the trust substrate instead of a chain.
 
 ## Architecture
 
-### Chain Connectors
-Normalize blockchain access across different chains:
-- Ethereum mainnet
-- Polygon mainnet
-- Polygon Amoy testnet
-- Configurable RPC endpoints via epistery config
+```
+index.mjs                         Express server, SSL, route mounting
+  |
+  +-- db/Database.mjs             MongoDB layer (entities, events, monitors, domains, transactions)
+  |
+  +-- ingestion/
+  |     IngestionManager.mjs      Coordinates polling across chains and web discovery
+  |     EntityTypeRegistry.mjs    Maps type names to interpreters with source metadata
+  |     ChainConnector.mjs        Normalized blockchain RPC access (ethers v6)
+  |     DomainDiscovery.mjs       Crawls domains for /.well-known/ai manifests
+  |     |
+  |     +-- interpreters/
+  |           AgentInterpreter.mjs              Agent.sol -- domain hosts, ACLs, attributes
+  |           IdentityContractInterpreter.mjs   IdentityContract.sol -- multi-sig rivets
+  |           CampaignWalletInterpreter.mjs     CampaignWallet.sol -- ad campaigns, payouts
+  |           AIDiscoveryInterpreter.mjs        Web manifests via DomainDiscovery
+  |
+  +-- handlers/
+  |     Search.mjs                Chain-first search (address, tx hash, text/domain)
+  |     Monitor.mjs               Add/remove monitored addresses
+  |     Event.mjs                 Query, aggregate, timeline events
+  |     Fetch.mjs                 On-demand data fetching
+  |     Discovery.mjs             Domain submission and listing API
+  |
+  +-- public/
+        index.html                Main search UI with type-aware rendering
+        discovery.html            AI Discovery browser
+```
 
-### Event Interpreters
-Parse raw logs into meaningful events:
-- `AgentInterpreter` - Handles Agent.sol events (ACLModified, AttributeSet, AttributeDeleted, OwnershipTransferred)
-- Gracefully handles contracts without `domain()` (not all contracts are DomainAgents)
-- Extensible for IdentityContract and CampaignWallet
+### Entity Type Registry
+
+All entity types register through `EntityTypeRegistry` with a unified interpreter interface:
+
+```
+registry.register(typeName, interpreter, { source: 'blockchain' | 'web' })
+
+Interpreter interface:
+  sync(address, chain)                    Fetch current state, store entity
+  processEvents(address, chain, from, to) Ingest new events (no-op for web entities)
+  getSummary(address, chain)              Structured summary
+  getSchema()                             { source, tabs[] } -- rendering hints for UI
+```
+
+Registered types:
+
+| Type | Source | Interpreter | Description |
+|------|--------|-------------|-------------|
+| Agent | blockchain | AgentInterpreter | Agent.sol -- domain hosts with ACLs and key-value attributes |
+| IdentityContract | blockchain | IdentityContractInterpreter | IdentityContract.sol -- multi-sig identity binding via rivets |
+| CampaignWallet | blockchain | CampaignWalletInterpreter | CampaignWallet.sol -- ad campaign budgets and publisher payouts |
+| AIDiscovery | web | AIDiscoveryInterpreter | `/.well-known/ai` manifests fetched via DomainDiscovery |
+
+### Ingestion
+
+**Blockchain polling**: `IngestionManager` polls monitored addresses on a configurable interval (default 5 min). For each monitor it calls `interpreter.processEvents()` then `interpreter.sync()`.
+
+**Domain discovery**: `DomainDiscovery` runs on a separate 24-hour cycle. It seeds known domains, discovers new domains from Agent contract metadata and manifest partner links, then calls `syncDomain()` to fetch and verify each manifest. `AIDiscoveryInterpreter` wraps this via composition, exposing `domainDiscovery` for crawl-specific methods while implementing the standard interpreter interface.
+
+**DomainDiscovery internals:**
+- `syncDomain(domain)` -- the interpreter-compatible core: fetch manifest, verify signature, fetch tiers, store entity, record event. Returns `{ entity, manifest }` or null.
+- `checkDomain(domain)` -- crawl wrapper around `syncDomain`: manages crawl state (`lastChecked`, `nextCheck`, `status`) and triggers domain discovery from manifest links.
+- `seedKnownDomains()`, `discoverFromAgents()`, `discoverDomains()` -- populate the domain crawl queue.
+
+### Chain Connector
+
+`ChainConnector` normalizes RPC access across chains using ethers v6. Handles chunked event queries with exponential backoff for rate-limited providers (especially Polygon/Infura).
 
 ### Database (MongoDB)
-**Minimal storage philosophy:**
-- `entities` - Address→chain index with basic metadata
-- `monitors` - Contracts to track (manual additions only, no auto-polling)
-- Events cached temporarily but always re-fetched from chain
 
-### API Handlers
-- **Search** - Chain-first lookup with fallback to index
-- **Fetch** - On-demand event/transaction fetching
-- **Monitor** - Manual contract tracking (no auto-polling)
-- **Events** - Hybrid cache/chain event retrieval
+| Collection | Purpose |
+|-----------|---------|
+| `entities` | All indexed entities keyed by address (unique). Stores type, chain, metadata, timestamps. |
+| `events` | Loosely typed event log. Blockchain events and discovery events both land here. |
+| `monitors` | Addresses being actively polled. Tracks chain, type, active status. |
+| `domains` | AI Discovery crawl state. Tracks check schedule, discovery source, status. |
+| `transactions` | Cached transaction details fetched from chain. |
 
-### SSL & Deployment
-- Automatic SSL via `@metric-im/administrate`
-- Let's Encrypt certificates auto-provision and renew
-- No nginx needed - handles HTTP (port 80) and HTTPS (port 443) directly
+## API
+
+All endpoints return JSON. No authentication required for read operations.
+
+### Search (chain-first)
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/search?q={query}` | GET | Search by address (0x...), tx hash, or text/domain |
+| `/api/search/address/:address?chain=` | GET | Contract or wallet details from chain |
+| `/api/search/tx/:hash?chain=` | GET | Transaction details from chain |
+| `/api/search/events/:address?chain=` | GET | On-chain event log for an address |
+
+Text/domain queries search MongoDB. Address and tx queries go to the chain directly. Domain-like queries trigger on-demand discovery if the domain isn't already indexed. Search results include `schema` from the registry so the UI knows how to render each entity type.
+
+### Monitors
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/monitor` | GET | List active monitors |
+| `/api/monitor` | POST | Add monitor `{ address, chain, type }` -- type validated against registry |
+| `/api/monitor/:address` | GET | Monitor status with entity and event count |
+| `/api/monitor/:address` | DELETE | Remove monitor |
+
+### Events
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/events?entityId=&type=&chain=&from=&to=` | GET | Query event log with filters |
+| `/api/events/stats?entityId=&chain=` | GET | Event type counts and date ranges |
+| `/api/events/timeline?interval=day` | GET | Event counts by time bucket |
+| `/api/events/aggregate` | POST | Raw MongoDB aggregation pipeline |
+
+### AI Discovery
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/discovery` | GET | List indexed AI Discovery domains |
+| `/api/discovery/:domain` | GET | Full manifest and crawl state for a domain |
+| `/api/discovery` | POST | Submit domain for indexing `{ domain }` |
+| `/api/discovery/check` | POST | Force re-check `{ domain }` |
+
+### Fetch (on-demand)
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/fetch/events` | POST | Fetch events for specific block range |
+| `/api/fetch/transaction` | POST | Fetch and cache transaction details |
+| `/api/fetch/block-number?chain=` | GET | Current block number for a chain |
+
+### Other
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/.well-known/ai` | GET | This server's own AI Discovery manifest |
+| `/health` | GET | Health check with DB and ingestion status |
+
+## UI
+
+The main search page (`/`) renders results with **type-aware tabs** driven by `getSchema()`:
+
+**Blockchain entities** (Agent, IdentityContract, CampaignWallet) -- tabs: Overview, Transactions, Events, Object Data
+
+- Events tab parses raw blockchain logs into human-readable descriptions (e.g. "0xc191... added 0xB357... to epistery::editor")
+- Object Data reconstructs current state by replaying events chronologically:
+  - ACL membership per list, with add dates
+  - Active attributes with privacy status
+  - Current owner from OwnershipTransferred events
+  - Campaign financials (budget, payouts, withdrawals), promotion status
+
+**AI Discovery entities** -- tabs: Overview, Pages, APIs, Policies, Concepts, Raw JSON
+
+- **Overview** -- domain link with verification badge (Verified/Signed/Unsigned), organization table, capabilities table, stats, AI instructions, rate limits, contact info
+- **Pages** -- site map from `manifest.pages[]` with path (linked), title, purpose, concept tags
+- **APIs** -- endpoint table from `manifest.apis` with name, URL, method, description
+- **Policies** -- content license (type + restrictions), privacy policy link, details URL from `manifest.policies`
+- **Concepts** -- glossary from `manifest.coreConcepts[]` with term and definition
+- **Raw JSON** -- formatted manifest source
+
+The AI Discovery browser (`/discovery`) provides a dedicated view of all indexed domains.
+
+## Event Interpretation
+
+Epistery Scan understands these event types:
+
+**Agent events:** ACLModified, AttributeSet, AttributeDeleted, OwnershipTransferred, ApprovalRequested, ApprovalHandled
+
+**Identity events:** RivetAdded, RivetRemoved, ThresholdChanged
+
+**Campaign events (v2):** BatchSubmitted, Withdrawn, PromotionAdded, PromotionUpdated, CampaignPaused, CampaignUnpaused, BudgetAdded
+
+**System events:** OwnershipTransferred (OpenZeppelin), RoleGranted, RoleRevoked
+
+**Discovery events:** discovery.indexed, discovery.updated, discovery.error
 
 ## Setup
 
@@ -94,217 +208,79 @@ npm install
 ```
 
 **Environment modes:**
-- `PROFILE=PROD` (default) - Uses `mongo.host` (LAN IP)
-- `PROFILE=DEV` - Uses `mongo.host_dev` (public IP for whitelisted machines)
+- `PROFILE=PROD` (default) -- uses `mongo.host` (LAN IP)
+- `PROFILE=DEV` -- uses `mongo.host_dev` (public IP for whitelisted machines)
 
-**Important:** Connection string must include `directConnection=true` to prevent MongoDB driver from hanging on replica set discovery.
+Connection string includes `directConnection=true` to prevent MongoDB driver from hanging on replica set discovery.
 
-### 3. Configure chains (~/.epistery/config.ini)
+Falls back to `mongodb://localhost:27017/epistery-scan` if no secrets file.
+
+### 3. Configure chains (~/.epistery/config)
 ```ini
 [chains.polygon]
 enabled=true
 rpcUrl=https://polygon-mainnet.infura.io/v3/YOUR_API_KEY
 
 [chains.ethereum]
-enabled=false
+enabled=true
 rpcUrl=https://mainnet.infura.io/v3/YOUR_API_KEY
 
-[chains.polygon-amoy]
-enabled=true
-rpcUrl=https://polygon-amoy.infura.io/v3/YOUR_API_KEY
+pollInterval = 300000
+discoveryPollInterval = 86400000
 
 [ingestion]
-autostart=false
+autostart=true
 ```
 
-**Note:** Auto-polling is disabled by default. Use on-demand fetching to control RPC usage.
-
-### 4. Run locally (development)
+### 4. Run
 ```bash
-PROFILE=DEV npm start
+npm start                  # Production (HTTP :80, HTTPS :443)
+PROFILE=DEV npm start      # Development (uses dev mongo host)
 ```
 
-Server runs on:
-- HTTP: port 80 (configurable via `PORT` env var)
-- HTTPS: port 443 (configurable via `PORTSSL` env var)
+SSL certificates provision automatically via `@metric-im/administrate`.
 
-### 5. Deploy to production
-```bash
-# On epistery.io server
-git pull
-npm install
-sudo systemctl restart epistery-scan
-```
+## Tech Stack
 
-SSL certificates provision automatically via administrate.
+- Node.js, ES modules (`.mjs`)
+- Express 4
+- MongoDB 4
+- ethers v6 for blockchain RPC
+- Vanilla HTML/CSS/JS (no frameworks)
+- `epistery` for config and key management
+- `@metric-im/administrate` for automatic SSL
+- `@metric-im/componentry` for ID generation
 
-## Usage
+## Key Files
 
-### Web Interface
-
-**Search:** https://epistery.io
-
-Enter:
-- Contract address: `0x330fE90a198283803B78c02BfFa5390Ec2f15d70`
-- Wallet address: `0xc191714b9c925063e4782691C36b8ff0605f6a6B`
-- Transaction hash: `0xbea85b7f...` (64 hex chars)
-- Domain name: Search indexed contracts by domain
-
-**Results show:**
-- **Overview** - Contract type, chain, owner, domain, version
-- **Events** - Human-readable event interpretations
-- **Transactions** - Full transaction details from chain
-- **Object Data** - Reconstructed current state (ACLs, attributes)
-
-### API Endpoints
-
-**Chain-First Search**
-```bash
-# Search (queries chain directly)
-GET /api/search?q=0x330fE90a198283803B78c02BfFa5390Ec2f15d70&chain=polygon-amoy
-
-# Get address details (reads contract state from chain)
-GET /api/search/address/0x330fE90a198283803B78c02BfFa5390Ec2f15d70?chain=polygon-amoy
-
-# Get events (hybrid: cached or chain-fetched)
-GET /api/search/events/0x330fE90a198283803B78c02BfFa5390Ec2f15d70?chain=polygon-amoy&limit=200
-
-# Get transaction details (fetched from chain)
-GET /api/search/tx/0xbea85b7f...?chain=polygon-amoy
-```
-
-**On-Demand Fetching**
-```bash
-# Fetch events for specific block range
-POST /api/fetch/events
-{
-  "address": "0x330fE90a198283803B78c02BfFa5390Ec2f15d70",
-  "chain": "polygon-amoy",
-  "fromBlock": 33000000,
-  "toBlock": 33100000
-}
-
-# Fetch transaction details
-POST /api/fetch/transaction
-{
-  "hash": "0xbea85b7f...",
-  "chain": "polygon-amoy"
-}
-
-# Get current block number
-GET /api/fetch/block-number?chain=polygon-amoy
-```
-
-**Manual Monitoring**
-```bash
-# Add contract to index
-POST /api/monitor
-{
-  "address": "0x330fE90a198283803B78c02BfFa5390Ec2f15d70",
-  "chain": "polygon-amoy",
-  "type": "Agent"
-}
-
-# List monitors
-GET /api/monitor
-
-# Remove monitor
-DELETE /api/monitor/0x330fE90a198283803B78c02BfFa5390Ec2f15d70?chain=polygon-amoy
-```
-
-## Event Interpretation
-
-Epistery Scan understands Epistery contract events:
-
-**agent.ACLModified**
-```
-Raw: { owner: "0xc191...", addr: "0xB357...", listName: "epistery::editor", action: "add" }
-Displayed: "0xc191... added 0xB357... to epistery::editor"
-```
-
-**agent.AttributeSet**
-```
-Raw: { owner: "0xc191...", key: "@epistery/wiki", isPrivate: false }
-Displayed: "0xc191... set 🔓 public attribute @epistery/wiki"
-```
-
-**agent.AttributeDeleted**
-```
-Raw: { owner: "0xc191...", key: "@epistery/wiki" }
-Displayed: "0xc191... deleted attribute @epistery/wiki"
-```
-
-**agent.OwnershipTransferred**
-```
-Raw: { previousOwner: "0xc191...", newOwner: "0xe75F..." }
-Displayed: "Ownership transferred from 0xc191... to 0xe75F..."
-```
-
-## State Reconstruction
-
-The **Object Data** tab reconstructs current contract state by replaying events chronologically:
-
-**Access Control Lists:**
-- Tracks `add`/`remove` actions per list
-- Shows current members with dates added
-- Groups by list name (epistery::admin, epistery::editor, etc.)
-
-**Attributes:**
-- Tracks `set`/`delete` operations
-- Shows privacy status (🔒 private / 🔓 public)
-- Displays last modified timestamp
-
-**Ownership:**
-- Tracks OwnershipTransferred events
-- Shows current owner
-
-All state is computed live from events - no separate state storage.
-
-## Development
-
-**Code Style:**
-- Raw JavaScript (no React/Vue/Angular)
-- ES modules
-- Minimal abstractions
-- Chain-first queries
-- MongoDB for indexing only
-
-**Key Files:**
-- `index.mjs` - Server setup with administrate SSL
-- `handlers/Search.mjs` - Chain-first search implementation
-- `handlers/Fetch.mjs` - On-demand data fetching
-- `ingestion/ChainConnector.mjs` - Blockchain RPC interface
-- `ingestion/interpreters/AgentInterpreter.mjs` - Agent.sol event parsing
-- `db/Database.mjs` - Minimal MongoDB operations
-- `public/index.html` - Single-file UI with event interpretation
-
-**Testing queries:**
-```bash
-# Local testing
-mongosh "mongodb://username:password@host:port/database?authSource=admin&directConnection=true"
-
-# Check connection from app
-curl http://localhost/health
-```
+| File | Purpose |
+|------|---------|
+| `index.mjs` | Server setup, route mounting, SSL |
+| `db/Database.mjs` | All MongoDB operations |
+| `ingestion/EntityTypeRegistry.mjs` | Type-to-interpreter mapping |
+| `ingestion/IngestionManager.mjs` | Poll coordination, registry wiring |
+| `ingestion/ChainConnector.mjs` | Blockchain RPC interface |
+| `ingestion/DomainDiscovery.mjs` | Domain crawling and manifest verification |
+| `ingestion/interpreters/*.mjs` | One interpreter per entity type |
+| `handlers/Search.mjs` | Chain-first search with text fallback |
+| `handlers/Monitor.mjs` | Monitor CRUD, type validation against registry |
+| `handlers/Event.mjs` | Event queries, aggregation, timeline |
+| `handlers/Discovery.mjs` | Domain submission and listing |
+| `handlers/Fetch.mjs` | On-demand chain data fetching |
+| `public/index.html` | Search UI with type-aware tab rendering |
+| `public/discovery.html` | AI Discovery browser |
 
 ## Reference
 
-**Core Epistery:**
-- `/rootz/epistery` - Core epistery module
-- `/rootz/epistery/contracts/Agent.sol` - Agent contract source
-- `https://wiki.rootz.global` - Epistery documentation
-
-**Related Projects:**
-- `/epistery/epistery-host` - Domain host implementation (uses administrate)
-- `/epistery/wiki` - Wiki agent (reference for epistery integration)
-- `/geistm/adnet-agent` - Adnet agent implementation
-- `/metric-im/componentry` - UI component framework
-- `/metric-im/administrate` - Automatic SSL provisioning
-
-**Examples:**
-- `epistery curl https://wiki.rootz.global/wiki/Home` - Access epistery wiki
-- Search `0x330fE90a198283803B78c02BfFa5390Ec2f15d70` on epistery.io
-- View wallet `0xc191714b9c925063e4782691C36b8ff0605f6a6B` activity
+- [AI Discovery Standard](https://rootz.global/ai/standard.md) -- the `/.well-known/ai` specification
+- [Epistery Wiki](https://wiki.rootz.global) -- ecosystem documentation
+- `/rootz/epistery` -- core epistery module
+- `/rootz/epistery/contracts/Agent.sol` -- Agent contract source
+- `/epistery/epistery-host` -- hosted epistery for domain owners
+- `/geistm/adnet-agent` -- Adnet agent implementation
+- `/geistm/adnet-factory-v2` -- CampaignWallet v2 contracts
+- `/metric-im/componentry` -- client-side modularity
+- `/metric-im/wiki-mixin` -- wiki reference implementation
 
 ## License
 
