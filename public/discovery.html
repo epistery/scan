@@ -247,6 +247,8 @@
       const capabilities = manifest.capabilities || {};
       const concepts = manifest.coreConcepts || [];
       const tiers = entity.metadata?.tiers || {};
+      const discoveryMethod = entity.metadata?.discoveryMethod || 'native';
+      const txtVerification = entity.metadata?.txtVerification || {};
 
       let sigStatus = 'Unsigned';
       let sigColor = '#999';
@@ -257,6 +259,18 @@
         sigStatus = 'Signed';
         sigColor = '#1565c0';
       }
+
+      const methodLabels = {
+        'native': '/.well-known/ai',
+        'link-tag': '<link> tag',
+        'subdomain': 'ai.* subdomain',
+        'dns-txt': 'DNS TXT'
+      };
+      const methodLabel = methodLabels[discoveryMethod] || discoveryMethod;
+
+      const txtBadge = txtVerification.hasTxtRecord
+        ? '<span style="display:inline-block;padding:0.15rem 0.4rem;border-radius:3px;font-size:0.7rem;font-weight:600;background:#c8e6c9;color:#2e7d32;">TXT Verified</span>'
+        : '<span style="display:inline-block;padding:0.15rem 0.4rem;border-radius:3px;font-size:0.7rem;font-weight:600;background:#e0e0e0;color:#888;">No TXT record</span>';
 
       const capList = Object.keys(capabilities).filter(k => capabilities[k])
         .map(c => `<span class="badge" style="background:#e8f5e9;color:#2e7d32;margin:2px;">${c}</span>`).join(' ');
@@ -273,6 +287,7 @@
             <span class="badge aidiscovery">AI Discovery</span>
             <span class="badge web">web</span>
             <span style="color:${sigColor};font-size:0.8rem;margin-left:0.5rem;">${sigStatus}</span>
+            ${txtBadge}
           </h3>
           <div class="address">
             <a href="https://${entity.address}" target="_blank" style="color:#3498db;">${entity.address}</a>
@@ -280,6 +295,7 @@
           <div class="meta">
             ${org.name ? `<span><strong>Organization:</strong> ${org.name}</span>` : ''}
             ${org.description ? `<span><strong>Description:</strong> ${org.description}</span>` : ''}
+            <span><strong>Discovered via:</strong> ${methodLabel}</span>
             ${entity._created ? `<span><strong>First seen:</strong> ${new Date(entity._created).toLocaleString()}</span>` : ''}
             ${entity._modified ? `<span><strong>Last updated:</strong> ${new Date(entity._modified).toLocaleString()}</span>` : ''}
           </div>

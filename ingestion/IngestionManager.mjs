@@ -38,7 +38,7 @@ export default class IngestionManager {
     // Register web interpreter
     const aiDiscovery = new AIDiscoveryInterpreter(this.database, {
       pollInterval: this.config.discoveryPollInterval || 86400000, // 24 hours
-      seedDomains: this.config.seedDomains || ['rootz.global', 'findbet.com', 'libertyproject.com']
+      seedDomains: this.config.seedDomains || ['epistery.io', 'rootz.global', 'geist.social', 'michael.sprague.com', 'findbet.com', 'libertyproject.com']
     });
     this.registry.register('AIDiscovery', aiDiscovery, { source: 'web' });
     this.domainDiscovery = aiDiscovery.domainDiscovery;

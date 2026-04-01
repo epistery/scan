@@ -279,6 +279,7 @@ export default class Database {
       domain: domainRecord.domain,
       active: domainRecord.active !== false,
       discoveredFrom: domainRecord.discoveredFrom || null,
+      discoveryMethod: domainRecord.discoveryMethod || null,
       status: domainRecord.status || 'pending',
       lastChecked: domainRecord.lastChecked || null,
       nextCheck: domainRecord.nextCheck || now,

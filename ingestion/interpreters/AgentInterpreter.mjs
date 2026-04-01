@@ -10,17 +10,19 @@ export default class AgentInterpreter {
     this.database = database;
     this.type = 'Agent';
 
-    // Minimal ABI for DomainAgent contract
+    // ABI for DomainAgent contract (matches DomainAgent.sol v1.3.0)
     this.abi = [
-      'event ACLModified(address indexed owner, string listName, address indexed addr, string action, uint256 timestamp)',
+      'event ACLModified(address indexed host, string listName, address indexed addr, string action, uint256 timestamp)',
       'event ApprovalRequested(address indexed approver, address indexed requestor, string fileName, string fileHash, uint256 timestamp)',
       'event ApprovalHandled(address indexed approver, address indexed requestor, string fileName, bool approved, uint256 timestamp)',
       'event AttributeSet(address indexed owner, string key, bool isPrivate, uint256 timestamp)',
       'event AttributeDeleted(address indexed owner, string key, bool isPrivate, uint256 timestamp)',
-      'event OwnershipTransferred(address indexed previousOwner, address indexed newOwner, uint256 timestamp)',
+      'event HostTransferred(address indexed previousHost, address indexed newHost, uint256 timestamp)',
+      'event InviteCreated(bytes32 indexed codeHash, string listName, uint8 role, uint256 timestamp)',
+      'event InviteRedeemed(bytes32 indexed codeHash, address indexed redeemer, string listName, uint256 timestamp)',
       'function VERSION() view returns (string)',
       'function domain() view returns (string)',
-      'function sponsor() view returns (address)',
+      'function host() view returns (address)',
       'function owner() view returns (address)',
       'function isInACL(string listName, address addr) view returns (bool)',
       'function getACL(string listName) view returns (tuple(address addr, string name, uint8 role, string meta)[])',
@@ -33,12 +35,14 @@ export default class AgentInterpreter {
    */
   getEventFilters() {
     return [
-      'ACLModified(address indexed owner, string listName, address indexed addr, string action, uint256 timestamp)',
+      'ACLModified(address indexed host, string listName, address indexed addr, string action, uint256 timestamp)',
       'ApprovalRequested(address indexed approver, address indexed requestor, string fileName, string fileHash, uint256 timestamp)',
       'ApprovalHandled(address indexed approver, address indexed requestor, string fileName, bool approved, uint256 timestamp)',
       'AttributeSet(address indexed owner, string key, bool isPrivate, uint256 timestamp)',
       'AttributeDeleted(address indexed owner, string key, bool isPrivate, uint256 timestamp)',
-      'OwnershipTransferred(address indexed previousOwner, address indexed newOwner, uint256 timestamp)'
+      'HostTransferred(address indexed previousHost, address indexed newHost, uint256 timestamp)',
+      'InviteCreated(bytes32 indexed codeHash, string listName, uint8 role, uint256 timestamp)',
+      'InviteRedeemed(bytes32 indexed codeHash, address indexed redeemer, string listName, uint256 timestamp)'
     ];
   }
 
@@ -71,11 +75,11 @@ export default class AgentInterpreter {
         // Not a DomainAgent, that's fine
       }
 
-      // Try to read sponsor
+      // Try to read host
       try {
-        metadata.sponsor = await contract.sponsor();
+        metadata.host = await contract.host();
       } catch (e) {
-        // No sponsor, that's fine
+        // No host, that's fine
       }
 
       // Try to read version

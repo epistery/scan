@@ -93,7 +93,7 @@ export default class DiscoveryHandler {
         } else {
           res.json({
             success: false,
-            message: `Domain ${domain} has no /.well-known/ai manifest`
+            message: `Domain ${domain} has no AI discovery manifest (tried native, link-tag, subdomain, and DNS TXT)`
           });
         }
       } catch (error) {

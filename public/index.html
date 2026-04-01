@@ -4,7 +4,15 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Epistery Scan</title>
-  <script src="/.well-known/epistery/lib/client.js"></script>
+  <!-- epistery wallet — loaded async so failures don't block the page -->
+  <script type="module">
+    import Witness from '/.well-known/epistery/lib/witness.js';
+    try {
+      window.Epistery = { witness: await Witness.connect({rootPath:'/.well-known/epistery'}) };
+    } catch(e) {
+      console.warn('[epistery] wallet init:', e.message);
+    }
+  </script>
   <style>
     * {
       margin: 0;
@@ -361,6 +369,78 @@
     .feed-event .feed-entity-label:hover {
       text-decoration: underline;
     }
+
+    .feed-compose {
+      background: #fff;
+      border-bottom: 1px solid #e0e0e0;
+      padding: 0.75rem 0;
+      margin-bottom: 1rem;
+    }
+
+    .feed-compose textarea {
+      width: 100%;
+      padding: 0.5rem;
+      border: 1px solid #e0e0e0;
+      border-radius: 4px;
+      font-family: inherit;
+      font-size: 0.9rem;
+      resize: vertical;
+    }
+
+    .feed-compose textarea:focus {
+      outline: none;
+      border-color: #3498db;
+    }
+
+    .compose-actions {
+      display: flex;
+      justify-content: flex-end;
+      align-items: center;
+      gap: 0.5rem;
+      margin-top: 0.5rem;
+    }
+
+    .compose-actions select {
+      padding: 0.35rem 0.5rem;
+      border: 1px solid #e0e0e0;
+      border-radius: 4px;
+      font-size: 0.85rem;
+    }
+
+    .compose-actions button {
+      padding: 0.35rem 1rem;
+      background: #3498db;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      font-size: 0.85rem;
+      cursor: pointer;
+    }
+
+    .compose-actions button:hover {
+      background: #2980b9;
+    }
+
+    .feed-event.message {
+      background: #f8fbff;
+      padding: 0.75rem;
+      border-radius: 4px;
+      margin-bottom: 0.5rem;
+      border-bottom: 1px solid #e0e0e0;
+    }
+
+    .feed-event.message .message-sender {
+      font-family: monospace;
+      font-size: 0.8rem;
+      color: #999;
+    }
+
+    .feed-event.message .message-text {
+      margin-top: 0.35rem;
+      font-size: 0.9rem;
+      line-height: 1.4;
+      color: #333;
+    }
   </style>
 </head>
 <body>
@@ -429,13 +509,16 @@
       try {
         let follows = JSON.parse(localStorage.getItem(FOLLOWS_KEY));
         if (!follows || follows.length === 0) {
-          // Everyone follows #epistery by default
-          follows = [{ address: 'epistery.io', type: 'AIDiscovery', chain: 'web', label: 'epistery.io', followedAt: Date.now() }];
+          // Seed with domains that publish activity
+          follows = [
+            { address: 'rootz.global', type: 'AIDiscovery', chain: 'web', label: 'rootz.global', followedAt: Date.now() },
+            { address: 'michael.sprague.com', type: 'AIDiscovery', chain: 'web', label: 'michael.sprague.com', followedAt: Date.now() }
+          ];
           saveFollows(follows);
         }
         return follows;
       } catch (e) {
-        return [{ address: 'epistery.io', type: 'AIDiscovery', chain: 'web', label: 'epistery.io', followedAt: Date.now() }];
+        return [];
       }
     }
 
@@ -504,15 +587,20 @@
 
       try {
         const addresses = follows.map(f => f.address);
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 15000);
         const response = await fetch('/api/feed', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ addresses, limit: 50 })
+          body: JSON.stringify({ addresses, limit: 50 }),
+          signal: controller.signal
         });
+        clearTimeout(timeout);
         const data = await response.json();
         renderFeed(data, follows);
       } catch (error) {
-        feedEl.innerHTML = `<div class="empty-state">Failed to load feed: ${error.message}</div>`;
+        const msg = error.name === 'AbortError' ? 'Feed request timed out' : error.message;
+        feedEl.innerHTML = `<div class="empty-state">Failed to load feed: ${msg}</div>`;
       }
     }
 
@@ -534,6 +622,21 @@
       });
       html += '</div>';
 
+      // Compose box — target selector populated from domain follows
+      const domainFollows = follows.filter(f => !/^0x/i.test(f.address));
+      if (domainFollows.length > 0) {
+        html += '<div class="feed-compose">';
+        html += '<textarea id="composeText" placeholder="Post a message..." rows="2"></textarea>';
+        html += '<div class="compose-actions">';
+        html += '<select id="composeTarget">';
+        domainFollows.forEach(f => {
+          html += `<option value="${f.address}">${f.label || f.address}</option>`;
+        });
+        html += '</select>';
+        html += '<button onclick="postMessage()">Post</button>';
+        html += '</div></div>';
+      }
+
       // Build entity lookup for labels
       const entityMap = {};
       if (data.entities) {
@@ -549,9 +652,30 @@
           const entity = entityMap[event.entityId?.toLowerCase()] || {};
           const entityLabel = entity.address || event.entityId || '';
           const shortLabel = entityLabel.length > 20 ? entityLabel.substring(0, 10) + '...' + entityLabel.substring(entityLabel.length - 6) : entityLabel;
+          const safeSearch = entityLabel.replace(/'/g, "\\'");
+
+          // Message events get a distinct rendering
+          if (event.type === 'message.post') {
+            const senderShort = event.sender && event.sender.length > 16
+              ? event.sender.substring(0, 8) + '...' + event.sender.substring(event.sender.length - 4)
+              : (event.sender || 'anonymous');
+            const msgText = (event.data?.text || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            html += `<div class="feed-event message">
+              <div style="display:flex; justify-content:space-between; align-items:center;">
+                <span class="message-sender">${senderShort} &rarr; ${shortLabel}</span>
+                <span class="event-time">${new Date(ts).toLocaleString()}</span>
+              </div>
+              <div class="message-text">${msgText}</div>
+            </div>`;
+            return;
+          }
+
           const badgeType = (entity.type || '').toLowerCase();
           const badgeChain = entity.chain || event.chain || '';
-          const safeSearch = entityLabel.replace(/'/g, "\\'");
+
+          const title = event.title || '';
+          const summary = typeof event.data === 'string' ? event.data : '';
+          const truncSummary = summary.length > 200 ? summary.substring(0, 200) + '...' : summary;
 
           html += `<div class="feed-event">
             <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -563,6 +687,8 @@
               <span class="event-time">${new Date(ts).toLocaleString()}</span>
             </div>
             <div class="event-type" style="margin-top:0.25rem;">${event.type || 'Unknown'}</div>
+            ${title ? `<div style="margin-top:0.35rem; font-weight:500; color:#2c3e50;">${title}</div>` : ''}
+            ${truncSummary ? `<div style="margin-top:0.25rem; color:#666; font-size:0.85rem; line-height:1.4;">${truncSummary}</div>` : ''}
           </div>`;
         });
 
@@ -576,6 +702,35 @@
       }
 
       feedEl.innerHTML = html;
+    }
+
+    async function postMessage() {
+      const textEl = document.getElementById('composeText');
+      const targetEl = document.getElementById('composeTarget');
+      if (!textEl || !targetEl) return;
+
+      const text = textEl.value.trim();
+      const target = targetEl.value;
+      if (!text || !target) return;
+
+      try {
+        const response = await fetch('/api/feed/post', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ target, text })
+        });
+
+        if (response.ok) {
+          textEl.value = '';
+          loadFeed();
+        } else {
+          const err = await response.json();
+          console.error('[post] Failed:', err.error);
+        }
+      } catch (error) {
+        console.error('[post] Error:', error);
+      }
     }
 
     // Tab switching via event delegation (works for dynamically created tabs)
@@ -736,6 +891,9 @@
       const entity = entities[0];
       const manifest = entity.metadata?.manifest || {};
       const verification = entity.metadata?.verification;
+      const discoveryMethod = entity.metadata?.discoveryMethod || 'native';
+      const manifestUrl = entity.metadata?.manifestUrl || '';
+      const txtVerification = entity.metadata?.txtVerification || {};
       const org = manifest.organization || {};
 
       // Rewrite tabs for AIDiscovery
@@ -767,10 +925,29 @@
         badgeText = 'Signed';
       }
 
+      const methodLabels = {
+        'native': '/.well-known/ai',
+        'link-tag': '<link> tag',
+        'subdomain': 'ai.* subdomain',
+        'dns-txt': 'DNS TXT'
+      };
+      const methodLabel = methodLabels[discoveryMethod] || discoveryMethod;
+
+      const txtBadgeHtml = txtVerification.hasTxtRecord
+        ? '<span class="verification-badge verified" style="margin-left:0.5rem;">TXT Verified</span>'
+        : '<span class="verification-badge" style="margin-left:0.5rem;background:#e0e0e0;color:#888;">No TXT record</span>';
+
       overviewHtml += `<h3>
         <a href="https://${entity.address}" target="_blank" style="color:#3498db;">${entity.address}</a>
         <span class="verification-badge ${badgeClass}">${badgeText}</span>
+        ${txtBadgeHtml}
       </h3>`;
+
+      overviewHtml += `<div style="margin:0.5rem 0;font-size:0.85rem;color:#666;">
+        <strong>Discovered via:</strong> ${methodLabel}
+        ${manifestUrl ? ` &mdash; <code style="font-size:0.8rem;">${manifestUrl}</code>` : ''}
+        ${txtVerification.txtHost ? `<br><strong>TXT delegation host:</strong> ${txtVerification.txtHost}` : ''}
+      </div>`;
 
       // Organization table
       if (org.name || org.domain || org.description) {

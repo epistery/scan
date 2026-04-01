@@ -1,20 +1,28 @@
 import crypto from 'crypto';
+import dns from 'dns';
+
+const dnsResolver = new dns.promises.Resolver();
 
 /**
  * DomainDiscovery
  *
  * Discovers and indexes websites that publish /.well-known/ai manifests.
- * A domain's signed manifest is as authoritative as a blockchain contract —
- * the domain owner is a legal entity, and the manifest is their signed assertion.
+ * Follows a 4-step discovery chain (modeled after email's SPF/DKIM/DMARC):
  *
- * Sites that don't serve /.well-known/ai or don't respond with JSON are ignored.
+ *   1. Native:    GET https://{domain}/.well-known/ai
+ *   2. Link tag:  Parse <link rel="ai-discovery"> from the domain's homepage
+ *   3. Subdomain: GET https://ai.{domain}/.well-known/ai
+ *   4. DNS TXT:   Lookup _ai.{domain} TXT record for delegation host
+ *
+ * After discovery, a TXT verification check runs independently to confirm
+ * the domain owner has published an _ai TXT record (proof of authorization).
  */
 export default class DomainDiscovery {
   constructor(database, config = {}) {
     this.database = database;
     this.pollInterval = config.pollInterval || 86400000; // 24 hours
     this.fetchTimeout = config.fetchTimeout || 10000; // 10 seconds
-    this.seedDomains = config.seedDomains || ['rootz.global', 'findbet.com', 'libertyproject.com'];
+    this.seedDomains = config.seedDomains || ['epistery.io', 'rootz.global', 'geist.social', 'michael.sprague.com', 'findbet.com', 'libertyproject.com'];
     this.isRunning = false;
     this.pollTimer = null;
   }
@@ -72,6 +80,129 @@ export default class DomainDiscovery {
   }
 
   /**
+   * Fetch a URL as text/html with same timeout/redirect pattern as fetchJSON
+   */
+  async fetchHTML(url) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), this.fetchTimeout);
+
+    try {
+      const response = await fetch(url, {
+        headers: { 'Accept': 'text/html' },
+        signal: controller.signal,
+        redirect: 'manual'
+      });
+
+      if (response.status >= 300 && response.status < 400) {
+        const location = response.headers.get('location');
+        if (location) {
+          clearTimeout(timeout);
+          return await this.fetchHTML(new URL(location, url).href);
+        }
+        return null;
+      }
+
+      if (!response.ok) return null;
+      return await response.text();
+    } catch (error) {
+      return null;
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  /**
+   * Step 2: Discover via <link rel="ai-discovery"> in the domain's homepage <head>
+   */
+  async discoverViaLinkTag(domain) {
+    const html = await this.fetchHTML(`https://${domain}/`);
+    if (!html) return null;
+
+    // Extract <head> content to limit regex scope
+    const headMatch = html.match(/<head[^>]*>([\s\S]*?)<\/head>/i);
+    if (!headMatch) return null;
+
+    const linkMatch = headMatch[1].match(/<link[^>]+rel=["']ai-discovery["'][^>]*>/i);
+    if (!linkMatch) return null;
+
+    const hrefMatch = linkMatch[0].match(/href=["']([^"']+)["']/i);
+    if (!hrefMatch) return null;
+
+    const manifestUrl = new URL(hrefMatch[1], `https://${domain}/`).href;
+    console.log(`[discovery] ${domain}: found <link rel="ai-discovery"> → ${manifestUrl}`);
+
+    const manifest = await this.fetchJSON(manifestUrl);
+    return manifest ? { manifest, manifestUrl } : null;
+  }
+
+  /**
+   * Step 3: Discover via ai.{domain} subdomain
+   */
+  async discoverViaSubdomain(domain) {
+    const url = `https://ai.${domain}/.well-known/ai`;
+    const manifest = await this.fetchJSON(url);
+    if (manifest) {
+      console.log(`[discovery] ${domain}: found manifest at ai.${domain}`);
+      return { manifest, manifestUrl: url };
+    }
+    return null;
+  }
+
+  /**
+   * Step 4: Discover via DNS TXT record at _ai.{domain}
+   * Expects: v=aid1 host={host}
+   * Then fetches: https://{host}/agent/rootz/ai-discovery/manifest?domain={domain}
+   */
+  async discoverViaDNSTxt(domain) {
+    try {
+      const records = await dnsResolver.resolveTxt(`_ai.${domain}`);
+      // records is array of arrays (each TXT record is an array of strings)
+      const flat = records.map(r => r.join('')).join(' ');
+      const hostMatch = flat.match(/v=aid1\s+host=(\S+)/i);
+      if (!hostMatch) return null;
+
+      const host = hostMatch[1];
+      const url = `https://${host}/agent/rootz/ai-discovery/manifest?domain=${domain}`;
+      console.log(`[discovery] ${domain}: TXT record points to ${host}`);
+
+      const manifest = await this.fetchJSON(url);
+      return manifest ? { manifest, manifestUrl: url } : null;
+    } catch (error) {
+      // ENOTFOUND, ENODATA, etc. — no TXT record
+      return null;
+    }
+  }
+
+  /**
+   * Verify _ai TXT record exists for a domain (independent of discovery method).
+   * This is proof that the domain owner authorized AI discovery.
+   */
+  async verifyTxtRecord(domain) {
+    const result = {
+      hasTxtRecord: false,
+      txtHost: null,
+      txtRaw: null,
+      checkedAt: new Date()
+    };
+
+    try {
+      const records = await dnsResolver.resolveTxt(`_ai.${domain}`);
+      const flat = records.map(r => r.join('')).join(' ');
+      result.txtRaw = flat;
+      result.hasTxtRecord = true;
+
+      const hostMatch = flat.match(/v=aid1\s+host=(\S+)/i);
+      if (hostMatch) {
+        result.txtHost = hostMatch[1];
+      }
+    } catch (error) {
+      // No TXT record — that's fine
+    }
+
+    return result;
+  }
+
+  /**
    * Sync a domain — fetch manifest, verify, store entity, record event.
    * This is the interpreter-compatible sync logic, called by AIDiscoveryInterpreter
    * and also by checkDomain for crawl-driven discovery.
@@ -81,14 +212,58 @@ export default class DomainDiscovery {
   async syncDomain(domain) {
     const now = new Date();
 
-    const manifest = await this.fetchJSON(`https://${domain}/.well-known/ai`);
+    // Try discovery methods in order, stop at first manifest
+    let manifest = null;
+    let discoveryMethod = null;
+    let manifestUrl = null;
+
+    // Step 1: Native /.well-known/ai
+    const nativeUrl = `https://${domain}/.well-known/ai`;
+    manifest = await this.fetchJSON(nativeUrl);
+    if (manifest) {
+      discoveryMethod = 'native';
+      manifestUrl = nativeUrl;
+    }
+
+    // Step 2: <link rel="ai-discovery"> in homepage
+    if (!manifest) {
+      const linkResult = await this.discoverViaLinkTag(domain);
+      if (linkResult) {
+        manifest = linkResult.manifest;
+        discoveryMethod = 'link-tag';
+        manifestUrl = linkResult.manifestUrl;
+      }
+    }
+
+    // Step 3: ai.{domain} subdomain
+    if (!manifest) {
+      const subResult = await this.discoverViaSubdomain(domain);
+      if (subResult) {
+        manifest = subResult.manifest;
+        discoveryMethod = 'subdomain';
+        manifestUrl = subResult.manifestUrl;
+      }
+    }
+
+    // Step 4: DNS TXT delegation
+    if (!manifest) {
+      const txtResult = await this.discoverViaDNSTxt(domain);
+      if (txtResult) {
+        manifest = txtResult.manifest;
+        discoveryMethod = 'dns-txt';
+        manifestUrl = txtResult.manifestUrl;
+      }
+    }
+
+    // Always run TXT verification regardless of discovery method
+    const txtVerification = await this.verifyTxtRecord(domain);
 
     if (!manifest) {
       await this.database.recordEvent({
         source: 'discovery',
         entityId: domain,
         type: 'discovery.error',
-        data: { domain, reason: 'No manifest or non-JSON response' }
+        data: { domain, reason: 'No manifest found via native, link-tag, subdomain, or DNS TXT', txtVerification }
       });
       return null;
     }
@@ -136,6 +311,9 @@ export default class DomainDiscovery {
         manifest,
         tiers,
         verification,
+        discoveryMethod,
+        manifestUrl,
+        txtVerification,
         domain
       }
     });
@@ -150,11 +328,14 @@ export default class DomainDiscovery {
         organization: manifest.organization?.name,
         capabilities: Object.keys(capabilities),
         tiersFound: Object.keys(tiers),
-        signatureValid: verification?.hashValid || false
+        signatureValid: verification?.hashValid || false,
+        discoveryMethod,
+        manifestUrl,
+        txtVerified: txtVerification.hasTxtRecord
       }
     });
 
-    console.log(`[discovery] ${domain}: ${isNew ? 'indexed' : 'updated'} (tiers: ${Object.keys(tiers).join(', ')})`);
+    console.log(`[discovery] ${domain}: ${isNew ? 'indexed' : 'updated'} via ${discoveryMethod} (tiers: ${Object.keys(tiers).join(', ')})`);
 
     return { entity, manifest };
   }
@@ -189,6 +370,7 @@ export default class DomainDiscovery {
       domain,
       active: true,
       status: 'indexed',
+      discoveryMethod: result.entity?.metadata?.discoveryMethod || null,
       lastChecked: now,
       nextCheck
     });
