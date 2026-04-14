@@ -3,8 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Epistery Scan</title>
-  <!-- epistery wallet — loaded async so failures don't block the page -->
+  <title>Epistery — Search the Signed Web</title>
   <script type="module">
     import Witness from '/.well-known/epistery/lib/witness.js';
     try {
@@ -14,1595 +13,538 @@
     }
   </script>
   <style>
-    * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
-    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
 
     body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-      background: #f5f5f5;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #fafafa;
       color: #333;
+      min-height: 100vh;
     }
 
-    .header {
-      background: #fff;
-      border-bottom: 1px solid #e0e0e0;
-      padding: 1rem 2rem;
-      box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-    }
-
-    .header h1 {
-      font-size: 1.5rem;
-      color: #2c3e50;
-    }
-
-    .header p {
-      font-size: 0.9rem;
-      color: #666;
-      margin-top: 0.25rem;
-      max-width: 700px;
-      line-height: 1.5;
-    }
-
-    .header p code {
-      background: #f0f0f0;
-      padding: 0.1rem 0.3rem;
-      border-radius: 3px;
-      font-size: 0.85rem;
-    }
-
-    .container {
-      max-width: 1200px;
-      margin: 2rem auto;
-      padding: 0 1rem;
-    }
-
-    .search-box {
-      background: #fff;
+    /* --- Landing state: centered search --- */
+    .landing {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
       padding: 2rem;
-      border-radius: 8px;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      transition: all 0.3s ease;
+    }
+
+    .landing.has-results {
+      min-height: auto;
+      justify-content: flex-start;
+      padding-top: 2rem;
+    }
+
+    .logo {
       margin-bottom: 2rem;
+      text-align: center;
     }
 
-    .search-box h2 {
-      margin-bottom: 1rem;
-      font-size: 1.2rem;
+    .logo h1 {
+      font-size: 3rem;
+      font-weight: 300;
       color: #2c3e50;
+      letter-spacing: -0.02em;
     }
 
-    .search-input-group {
+    .has-results .logo h1 {
+      font-size: 1.5rem;
+    }
+
+    .logo .subtitle {
+      font-size: 1rem;
+      color: #888;
+      margin-top: 0.5rem;
+    }
+
+    .has-results .logo .subtitle {
+      display: none;
+    }
+
+    /* --- Search bar --- */
+    .search-bar {
+      width: 100%;
+      max-width: 640px;
       display: flex;
-      gap: 0.5rem;
-    }
-
-    .search-input {
-      flex: 1;
-      padding: 0.75rem;
-      border: 2px solid #e0e0e0;
-      border-radius: 4px;
-      font-size: 1rem;
-      transition: border-color 0.2s;
-    }
-
-    .search-input:focus {
-      outline: none;
-      border-color: #3498db;
-    }
-
-    .search-button {
-      padding: 0.75rem 2rem;
-      background: #3498db;
-      color: white;
-      border: none;
-      border-radius: 4px;
-      font-size: 1rem;
-      cursor: pointer;
-      transition: background 0.2s;
-    }
-
-    .search-button:hover {
-      background: #2980b9;
-    }
-
-    .results {
-      background: #fff;
-      border-radius: 8px;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      gap: 0;
+      border: 2px solid #ddd;
+      border-radius: 28px;
       overflow: hidden;
+      background: #fff;
+      transition: border-color 0.2s, box-shadow 0.2s;
     }
 
-    .tabs {
-      display: flex;
-      border-bottom: 2px solid #e0e0e0;
+    .search-bar:focus-within {
+      border-color: #3498db;
+      box-shadow: 0 2px 12px rgba(52,152,219,0.15);
     }
 
-    .tab {
-      padding: 1rem 1.5rem;
+    .search-bar input {
+      flex: 1;
+      min-width: 0;
+      padding: 0.9rem 1.5rem;
+      border: none;
+      outline: none;
+      font-size: 1.05rem;
+      background: transparent;
+    }
+
+    .search-bar button {
+      padding: 0.9rem 1.75rem;
       background: transparent;
       border: none;
       cursor: pointer;
-      font-size: 1rem;
-      color: #666;
-      transition: all 0.2s;
-      border-bottom: 3px solid transparent;
-    }
-
-    .tab:hover {
+      font-size: 1.1rem;
       color: #3498db;
+      transition: background 0.15s;
     }
 
-    .tab.active {
+    .search-bar button:hover {
+      background: #f0f7ff;
+    }
+
+    /* --- Stats line --- */
+    .stats {
+      margin-top: 1.25rem;
+      font-size: 0.85rem;
+      color: #aaa;
+      text-align: center;
+    }
+
+    .stats span { color: #3498db; font-weight: 600; }
+
+    .has-results .stats { display: none; }
+
+    /* --- Submit link --- */
+    .submit-line {
+      margin-top: 0.75rem;
+      font-size: 0.85rem;
+      color: #aaa;
+      text-align: center;
+    }
+
+    .submit-line a {
       color: #3498db;
-      border-bottom-color: #3498db;
+      text-decoration: none;
+      cursor: pointer;
     }
 
-    .tab-content {
+    .submit-line a:hover { text-decoration: underline; }
+
+    .has-results .submit-line { display: none; }
+
+    /* --- Discovering banner --- */
+    .discovering {
       display: none;
-      padding: 2rem;
+      max-width: 640px;
+      width: 100%;
+      margin-top: 1rem;
+      padding: 0.75rem 1rem;
+      background: #f0f7ff;
+      border: 1px solid #bdd8f1;
+      border-radius: 6px;
+      font-size: 0.9rem;
+      color: #2c6faa;
     }
 
-    .tab-content.active {
-      display: block;
+    /* --- Results --- */
+    .results-area {
+      width: 100%;
+      max-width: 720px;
+      margin-top: 1.5rem;
+      display: none;
     }
 
-    .entity-card {
-      border: 1px solid #e0e0e0;
-      border-radius: 4px;
-      padding: 1rem;
+    .result-count {
+      font-size: 0.85rem;
+      color: #999;
       margin-bottom: 1rem;
     }
 
-    .entity-card h3 {
-      font-size: 1.1rem;
-      margin-bottom: 0.5rem;
-      color: #2c3e50;
+    .result {
+      background: #fff;
+      border: 1px solid #e8e8e8;
+      border-radius: 8px;
+      padding: 1.25rem 1.5rem;
+      margin-bottom: 0.75rem;
+      transition: box-shadow 0.15s;
     }
 
-    .entity-card .address {
-      font-family: monospace;
-      color: #3498db;
-      word-break: break-all;
-      font-size: 0.9rem;
-      margin-bottom: 0.5rem;
+    .result:hover {
+      box-shadow: 0 2px 8px rgba(0,0,0,0.06);
     }
 
-    .entity-card .meta {
+    .result-header {
       display: flex;
-      gap: 1rem;
+      align-items: baseline;
+      gap: 0.75rem;
       flex-wrap: wrap;
-      font-size: 0.85rem;
-      color: #666;
+      min-width: 0;
     }
 
-    .event-row {
-      border-bottom: 1px solid #e0e0e0;
-      padding: 1rem 0;
-    }
-
-    .event-row:last-child {
-      border-bottom: none;
-    }
-
-    .event-row .event-type {
+    .result-name {
+      font-size: 1.15rem;
       font-weight: 600;
       color: #2c3e50;
-      margin-bottom: 0.25rem;
     }
 
-    .event-row .event-time {
+    .result-domain {
       font-size: 0.85rem;
-      color: #666;
-      margin-bottom: 0.5rem;
+      color: #3498db;
+      text-decoration: none;
+      overflow-wrap: anywhere;
     }
 
-    .event-row .event-data {
-      font-family: monospace;
-      font-size: 0.85rem;
-      color: #555;
-    }
+    .result-domain:hover { text-decoration: underline; }
 
-    .empty-state {
-      text-align: center;
-      padding: 3rem;
-      color: #999;
-    }
-
-    .loading {
-      text-align: center;
-      padding: 2rem;
-      color: #666;
+    .result-trust {
+      margin-left: auto;
+      flex-shrink: 0;
     }
 
     .badge {
       display: inline-block;
-      padding: 0.25rem 0.5rem;
+      padding: 0.2rem 0.6rem;
       border-radius: 3px;
-      font-size: 0.75rem;
-      font-weight: 600;
+      font-size: 0.7rem;
+      font-weight: 700;
       text-transform: uppercase;
+      letter-spacing: 0.03em;
     }
 
-    .badge.agent { background: #e3f2fd; color: #1976d2; }
-    .badge.identity { background: #f3e5f5; color: #7b1fa2; }
-    .badge.campaign { background: #fff3e0; color: #e65100; }
-    .badge.aidiscovery { background: #e8f5e9; color: #2e7d32; }
-    .badge.ethereum { background: #eceff1; color: #455a64; }
-    .badge.polygon { background: #f3e5f5; color: #8e24aa; }
-    .badge.web { background: #e0f7fa; color: #00695c; }
+    .badge-verified { background: #c8e6c9; color: #2e7d32; }
+    .badge-signed   { background: #fff9c4; color: #f57f17; }
+    .badge-open     { background: #e3f2fd; color: #1565c0; }
 
-    .suggestion {
-      background: #fff3cd;
-      border: 1px solid #ffc107;
-      border-radius: 4px;
-      padding: 1rem;
-      margin: 1rem 0;
-    }
-
-    .suggestion button {
+    .result-mission {
       margin-top: 0.5rem;
-      padding: 0.5rem 1rem;
-      background: #ffc107;
-      border: none;
-      border-radius: 4px;
-      cursor: pointer;
+      font-size: 0.95rem;
+      color: #555;
+      line-height: 1.5;
     }
 
-    .manifest-table {
-      width: 100%;
-      border-collapse: collapse;
-      margin: 1rem 0;
-    }
-
-    .manifest-table th {
-      background: #f0f0f0;
-      text-align: left;
-      padding: 0.75rem;
-      border: 1px solid #e0e0e0;
-      font-size: 0.9rem;
-    }
-
-    .manifest-table td {
-      padding: 0.75rem;
-      border: 1px solid #e0e0e0;
-      font-size: 0.9rem;
-      word-break: break-word;
-    }
-
-    .manifest-table tr:nth-child(even) {
-      background: #fafafa;
-    }
-
-    .verification-badge {
-      display: inline-block;
-      padding: 0.25rem 0.75rem;
-      border-radius: 3px;
-      font-size: 0.8rem;
-      font-weight: 600;
-    }
-
-    .verification-badge.verified { background: #c8e6c9; color: #2e7d32; }
-    .verification-badge.signed { background: #fff9c4; color: #f57f17; }
-    .verification-badge.unsigned { background: #ffcdd2; color: #c62828; }
-
-    .follow-btn {
-      padding: 0.35rem 0.75rem;
-      border-radius: 4px;
-      font-size: 0.8rem;
-      cursor: pointer;
-      font-weight: 600;
-      transition: all 0.2s;
-      float: right;
-    }
-
-    .follow-btn.follow {
-      background: #3498db;
-      color: white;
-      border: 2px solid #3498db;
-    }
-
-    .follow-btn.follow:hover {
-      background: #2980b9;
-      border-color: #2980b9;
-    }
-
-    .follow-btn.unfollow {
-      background: white;
-      color: #e74c3c;
-      border: 2px solid #e74c3c;
-    }
-
-    .follow-btn.unfollow:hover {
-      background: #e74c3c;
-      color: white;
-    }
-
-    .feed-follows {
+    .result-concepts {
+      margin-top: 0.6rem;
       display: flex;
       flex-wrap: wrap;
-      gap: 0.5rem;
-      margin-bottom: 1.5rem;
+      gap: 0.35rem;
     }
 
-    .feed-follow-tag {
-      display: inline-flex;
-      align-items: center;
-      gap: 0.4rem;
-      background: #e3f2fd;
-      color: #1976d2;
-      padding: 0.3rem 0.6rem;
+    .concept-tag {
+      display: inline-block;
+      padding: 0.15rem 0.5rem;
+      background: #f0f4f8;
       border-radius: 3px;
-      font-size: 0.8rem;
-      font-family: monospace;
+      font-size: 0.78rem;
+      color: #555;
     }
 
-    .feed-follow-tag .remove {
-      cursor: pointer;
-      color: #999;
-      font-weight: bold;
-      font-size: 0.9rem;
-      line-height: 1;
-    }
-
-    .feed-follow-tag .remove:hover {
-      color: #e74c3c;
-    }
-
-    .feed-event {
-      border-bottom: 1px solid #e0e0e0;
-      padding: 0.75rem 0;
-    }
-
-    .feed-event:last-child {
-      border-bottom: none;
-    }
-
-    .feed-event .feed-entity-label {
-      color: #3498db;
-      cursor: pointer;
-      font-family: monospace;
-      font-size: 0.85rem;
-    }
-
-    .feed-event .feed-entity-label:hover {
-      text-decoration: underline;
-    }
-
-    .feed-compose {
-      background: #fff;
-      border-bottom: 1px solid #e0e0e0;
-      padding: 0.75rem 0;
-      margin-bottom: 1rem;
-    }
-
-    .feed-compose textarea {
-      width: 100%;
-      padding: 0.5rem;
-      border: 1px solid #e0e0e0;
-      border-radius: 4px;
-      font-family: inherit;
-      font-size: 0.9rem;
-      resize: vertical;
-    }
-
-    .feed-compose textarea:focus {
-      outline: none;
-      border-color: #3498db;
-    }
-
-    .compose-actions {
-      display: flex;
-      justify-content: flex-end;
-      align-items: center;
-      gap: 0.5rem;
+    .result-apps {
       margin-top: 0.5rem;
+      font-size: 0.85rem;
+      color: #777;
     }
 
-    .compose-actions select {
-      padding: 0.35rem 0.5rem;
-      border: 1px solid #e0e0e0;
-      border-radius: 4px;
-      font-size: 0.85rem;
+    .result-apps strong { color: #555; font-weight: 600; }
+
+    .result-meta {
+      margin-top: 0.5rem;
+      display: flex;
+      gap: 1rem;
+      flex-wrap: wrap;
+      font-size: 0.78rem;
+      color: #aaa;
     }
 
-    .compose-actions button {
-      padding: 0.35rem 1rem;
-      background: #3498db;
-      color: white;
-      border: none;
-      border-radius: 4px;
-      font-size: 0.85rem;
+    .result-capabilities {
+      margin-top: 0.5rem;
+      display: flex;
+      gap: 0.35rem;
+      flex-wrap: wrap;
+    }
+
+    .cap-tag {
+      display: inline-block;
+      padding: 0.1rem 0.45rem;
+      background: #e8f5e9;
+      border-radius: 3px;
+      font-size: 0.72rem;
+      color: #2e7d32;
+      text-transform: uppercase;
+      font-weight: 600;
+    }
+
+    .claim-link {
+      margin-top: 0.6rem;
+      font-size: 0.82rem;
+    }
+
+    .claim-link a {
+      color: #3498db;
+      text-decoration: none;
       cursor: pointer;
     }
 
-    .compose-actions button:hover {
-      background: #2980b9;
-    }
+    .claim-link a:hover { text-decoration: underline; }
 
-    .feed-event.message {
-      background: #f8fbff;
-      padding: 0.75rem;
-      border-radius: 4px;
-      margin-bottom: 0.5rem;
-      border-bottom: 1px solid #e0e0e0;
-    }
-
-    .feed-event.message .message-sender {
-      font-family: monospace;
+    /* --- Footer --- */
+    .footer {
+      text-align: center;
+      padding: 2rem;
       font-size: 0.8rem;
+      color: #bbb;
+    }
+
+    .footer a {
+      color: #999;
+      text-decoration: none;
+    }
+
+    .footer a:hover { text-decoration: underline; }
+
+    /* --- Empty state --- */
+    .no-results {
+      text-align: center;
+      padding: 2rem;
       color: #999;
     }
 
-    .feed-event.message .message-text {
-      margin-top: 0.35rem;
+    .no-results h3 {
+      font-weight: 500;
+      margin-bottom: 0.5rem;
+    }
+
+    .no-results p {
       font-size: 0.9rem;
-      line-height: 1.4;
-      color: #333;
+      line-height: 1.6;
+    }
+
+    .no-results code {
+      background: #f0f0f0;
+      padding: 0.1rem 0.4rem;
+      border-radius: 3px;
+      font-size: 0.85rem;
     }
   </style>
 </head>
 <body>
-  <div class="header">
-    <h1>Epistery Scan</h1>
-    <p>Epistery Scan indexes Epistery blockchain contracts and AI Discovery manifests. Search by contract address, transaction hash, or domain name. Domains that publish <code>/.well-known/ai</code> are indexed automatically.</p>
-    <p style="margin-top: 0.5rem;"><a href="/discovery" style="color: #3498db; text-decoration: none;">AI Discovery &rarr;</a></p>
+  <div class="landing" id="landing">
+    <div class="logo">
+      <h1>epistery</h1>
+      <p class="subtitle">Search the signed web</p>
+    </div>
+
+    <div class="search-bar">
+      <input type="text" id="searchInput"
+             placeholder="Search authored knowledge..."
+             autocomplete="off"
+             spellcheck="false">
+      <button id="searchBtn" aria-label="Search">&#x2192;</button>
+    </div>
+
+    <div class="stats" id="stats"></div>
+    <div class="submit-line">
+      Publish <code>/.well-known/ai</code> to be indexed &mdash;
+      <a id="submitLink">submit a domain</a>
+    </div>
+
+    <div class="discovering" id="discovering"></div>
+
+    <div class="results-area" id="resultsArea">
+      <div class="result-count" id="resultCount"></div>
+      <div id="resultsList"></div>
+    </div>
   </div>
 
-  <div class="container">
-    <div class="search-box">
-      <h2>Search</h2>
-      <div class="search-input-group">
-        <input
-          type="text"
-          class="search-input"
-          id="searchInput"
-          placeholder="Search by address, transaction, or domain..."
-        >
-        <button class="search-button" onclick="search()">Search</button>
-      </div>
-      <div style="margin-top: 0.75rem; font-size: 0.85rem; color: #888; line-height: 1.6;">
-        <code>0x...</code> &mdash; blockchain contract or wallet address &nbsp;|&nbsp;
-        <code>0x... (64 chars)</code> &mdash; transaction hash &nbsp;|&nbsp;
-        <code>rootz.global</code> &mdash; domain with AI discovery manifest &nbsp;|&nbsp;
-        Text &mdash; search indexed entities by name
-      </div>
-    </div>
-
-    <div class="results" id="results" style="display: none;">
-      <div class="tabs">
-        <button class="tab" data-tab="feed" style="display:none">Feed</button>
-        <button class="tab active" data-tab="overview">Overview</button>
-        <button class="tab" data-tab="transactions">Transactions</button>
-        <button class="tab" data-tab="events">Events</button>
-        <button class="tab" data-tab="data">Object Data</button>
-      </div>
-
-      <div class="tab-content" id="feed">
-        <div class="empty-state">Search for a contract, wallet, or domain and click <strong>Follow</strong> to build your feed.</div>
-      </div>
-
-      <div class="tab-content active" id="overview">
-        <div class="loading">Loading...</div>
-      </div>
-
-      <div class="tab-content" id="transactions">
-        <div class="empty-state">No transactions found</div>
-      </div>
-
-      <div class="tab-content" id="events">
-        <div class="empty-state">No events found</div>
-      </div>
-
-      <div class="tab-content" id="data">
-        <div class="empty-state">No data found</div>
-      </div>
-    </div>
+  <div class="footer">
+    <a href="/.well-known/ai">/.well-known/ai</a> &nbsp;&middot;&nbsp;
+    Authored, not scraped &nbsp;&middot;&nbsp;
+    <a href="https://rootz.global/ai-discovery">AI Discovery Standard</a>
   </div>
 
   <script>
-    // --- Follow management (localStorage) ---
-    const FOLLOWS_KEY = 'epistery-scan-follows';
+    const input = document.getElementById('searchInput');
+    const btn = document.getElementById('searchBtn');
+    const landing = document.getElementById('landing');
+    const resultsArea = document.getElementById('resultsArea');
+    const resultsList = document.getElementById('resultsList');
+    const resultCount = document.getElementById('resultCount');
+    const discovering = document.getElementById('discovering');
+    const statsEl = document.getElementById('stats');
 
-    function getFollows() {
-      try {
-        let follows = JSON.parse(localStorage.getItem(FOLLOWS_KEY));
-        if (!follows || follows.length === 0) {
-          // Seed with domains that publish activity
-          follows = [
-            { address: 'rootz.global', type: 'AIDiscovery', chain: 'web', label: 'rootz.global', followedAt: Date.now() },
-            { address: 'michael.sprague.com', type: 'AIDiscovery', chain: 'web', label: 'michael.sprague.com', followedAt: Date.now() }
-          ];
-          saveFollows(follows);
-        }
-        return follows;
-      } catch (e) {
-        return [];
+    // Load stats on page load
+    fetch('/api/search/stats')
+      .then(r => r.json())
+      .then(s => {
+        statsEl.innerHTML = `<span>${s.domains}</span> signed domains &middot; <span>${s.concepts}</span> concepts indexed &middot; <span>${s.verified}</span> verified`;
+      })
+      .catch(() => {});
+
+    // Search on enter or click
+    input.addEventListener('keydown', e => { if (e.key === 'Enter') doSearch(); });
+    btn.addEventListener('click', doSearch);
+
+    // Submit domain
+    document.getElementById('submitLink').addEventListener('click', () => {
+      const domain = prompt('Enter a domain to check for /.well-known/ai:');
+      if (domain) {
+        input.value = domain;
+        doSearch();
       }
-    }
-
-    function saveFollows(follows) {
-      try {
-        localStorage.setItem(FOLLOWS_KEY, JSON.stringify(follows));
-      } catch (e) {
-        console.warn('localStorage unavailable');
-      }
-    }
-
-    function addFollow(address, type, chain, label) {
-      const follows = getFollows();
-      if (follows.some(f => f.address.toLowerCase() === address.toLowerCase())) return;
-      follows.push({ address, type: type || '', chain: chain || '', label: label || address, followedAt: Date.now() });
-      saveFollows(follows);
-      updateFeedTabVisibility();
-    }
-
-    function removeFollow(address) {
-      const follows = getFollows().filter(f => f.address.toLowerCase() !== address.toLowerCase());
-      saveFollows(follows);
-      updateFeedTabVisibility();
-    }
-
-    function isFollowed(address) {
-      return getFollows().some(f => f.address.toLowerCase() === address.toLowerCase());
-    }
-
-    function followButtonHtml(address, type, chain, label) {
-      const safeAddr = address.replace(/'/g, "\\'");
-      const safeType = (type || '').replace(/'/g, "\\'");
-      const safeChain = (chain || '').replace(/'/g, "\\'");
-      const safeLabel = (label || address).replace(/'/g, "\\'");
-      if (isFollowed(address)) {
-        return `<button class="follow-btn unfollow" onclick="event.stopPropagation(); removeFollow('${safeAddr}'); this.outerHTML = followButtonHtml('${safeAddr}','${safeType}','${safeChain}','${safeLabel}');">Unfollow</button>`;
-      }
-      return `<button class="follow-btn follow" onclick="event.stopPropagation(); addFollow('${safeAddr}','${safeType}','${safeChain}','${safeLabel}'); this.outerHTML = followButtonHtml('${safeAddr}','${safeType}','${safeChain}','${safeLabel}');">Follow</button>`;
-    }
-
-    function updateFeedTabVisibility() {
-      const feedTab = document.querySelector('.tab[data-tab="feed"]');
-      if (!feedTab) return;
-      const hasFollows = getFollows().length > 0;
-      feedTab.style.display = hasFollows ? '' : 'none';
-      // If feed tab was active and no follows remain, switch to overview
-      if (!hasFollows && feedTab.classList.contains('active')) {
-        feedTab.classList.remove('active');
-        const feedContent = document.getElementById('feed');
-        if (feedContent) feedContent.classList.remove('active');
-        const overviewTab = document.querySelector('.tab[data-tab="overview"]');
-        if (overviewTab) {
-          overviewTab.classList.add('active');
-          document.getElementById('overview').classList.add('active');
-        }
-      }
-    }
-
-    async function loadFeed() {
-      const follows = getFollows();
-      if (follows.length === 0) return;
-
-      const feedEl = document.getElementById('feed');
-      if (!feedEl) return;
-      feedEl.innerHTML = '<div class="loading">Loading feed...</div>';
-
-      try {
-        const addresses = follows.map(f => f.address);
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 15000);
-        const response = await fetch('/api/feed', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ addresses, limit: 50 }),
-          signal: controller.signal
-        });
-        clearTimeout(timeout);
-        const data = await response.json();
-        renderFeed(data, follows);
-      } catch (error) {
-        const msg = error.name === 'AbortError' ? 'Feed request timed out' : error.message;
-        feedEl.innerHTML = `<div class="empty-state">Failed to load feed: ${msg}</div>`;
-      }
-    }
-
-    function renderFeed(data, follows) {
-      const feedEl = document.getElementById('feed');
-      if (!feedEl) return;
-
-      let html = '';
-
-      // Follow list summary with unfollow buttons
-      html += '<div class="feed-follows">';
-      follows.forEach(f => {
-        const shortAddr = f.label.length > 20 ? f.label.substring(0, 10) + '...' + f.label.substring(f.label.length - 6) : f.label;
-        const safeAddr = f.address.replace(/'/g, "\\'");
-        html += `<span class="feed-follow-tag">
-          ${shortAddr}
-          <span class="remove" onclick="removeFollow('${safeAddr}'); loadFeed();">&times;</span>
-        </span>`;
-      });
-      html += '</div>';
-
-      // Compose box — target selector populated from domain follows
-      const domainFollows = follows.filter(f => !/^0x/i.test(f.address));
-      if (domainFollows.length > 0) {
-        html += '<div class="feed-compose">';
-        html += '<textarea id="composeText" placeholder="Post a message..." rows="2"></textarea>';
-        html += '<div class="compose-actions">';
-        html += '<select id="composeTarget">';
-        domainFollows.forEach(f => {
-          html += `<option value="${f.address}">${f.label || f.address}</option>`;
-        });
-        html += '</select>';
-        html += '<button onclick="postMessage()">Post</button>';
-        html += '</div></div>';
-      }
-
-      // Build entity lookup for labels
-      const entityMap = {};
-      if (data.entities) {
-        data.entities.forEach(e => {
-          entityMap[e.address.toLowerCase()] = e;
-        });
-      }
-
-      // Event feed
-      if (data.events && data.events.length > 0) {
-        data.events.forEach(event => {
-          const ts = event.timestamp > 10000000000 ? event.timestamp : event.timestamp * 1000;
-          const entity = entityMap[event.entityId?.toLowerCase()] || {};
-          const entityLabel = entity.address || event.entityId || '';
-          const shortLabel = entityLabel.length > 20 ? entityLabel.substring(0, 10) + '...' + entityLabel.substring(entityLabel.length - 6) : entityLabel;
-          const safeSearch = entityLabel.replace(/'/g, "\\'");
-
-          // Message events get a distinct rendering
-          if (event.type === 'message.post') {
-            const senderShort = event.sender && event.sender.length > 16
-              ? event.sender.substring(0, 8) + '...' + event.sender.substring(event.sender.length - 4)
-              : (event.sender || 'anonymous');
-            const msgText = (event.data?.text || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-            html += `<div class="feed-event message">
-              <div style="display:flex; justify-content:space-between; align-items:center;">
-                <span class="message-sender">${senderShort} &rarr; ${shortLabel}</span>
-                <span class="event-time">${new Date(ts).toLocaleString()}</span>
-              </div>
-              <div class="message-text">${msgText}</div>
-            </div>`;
-            return;
-          }
-
-          const badgeType = (entity.type || '').toLowerCase();
-          const badgeChain = entity.chain || event.chain || '';
-
-          const title = event.title || '';
-          const summary = typeof event.data === 'string' ? event.data : '';
-          const truncSummary = summary.length > 200 ? summary.substring(0, 200) + '...' : summary;
-
-          html += `<div class="feed-event">
-            <div style="display:flex; justify-content:space-between; align-items:center;">
-              <div>
-                ${badgeType ? `<span class="badge ${badgeType}">${entity.type}</span>` : ''}
-                ${badgeChain ? `<span class="badge ${badgeChain}">${badgeChain}</span>` : ''}
-                <span class="feed-entity-label" onclick="document.getElementById('searchInput').value='${safeSearch}'; search();">${shortLabel}</span>
-              </div>
-              <span class="event-time">${new Date(ts).toLocaleString()}</span>
-            </div>
-            <div class="event-type" style="margin-top:0.25rem;">${event.type || 'Unknown'}</div>
-            ${title ? `<div style="margin-top:0.35rem; font-weight:500; color:#2c3e50;">${title}</div>` : ''}
-            ${truncSummary ? `<div style="margin-top:0.25rem; color:#666; font-size:0.85rem; line-height:1.4;">${truncSummary}</div>` : ''}
-          </div>`;
-        });
-
-        if (data.pagination && data.pagination.total > data.pagination.limit) {
-          html += `<div style="text-align:center; padding:1rem; color:#999; font-size:0.9rem;">
-            Showing ${data.events.length} of ${data.pagination.total} events
-          </div>`;
-        }
-      } else {
-        html += '<div class="empty-state">No recent activity for followed addresses</div>';
-      }
-
-      feedEl.innerHTML = html;
-    }
-
-    async function postMessage() {
-      const textEl = document.getElementById('composeText');
-      const targetEl = document.getElementById('composeTarget');
-      if (!textEl || !targetEl) return;
-
-      const text = textEl.value.trim();
-      const target = targetEl.value;
-      if (!text || !target) return;
-
-      try {
-        const response = await fetch('/api/feed/post', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
-          body: JSON.stringify({ target, text })
-        });
-
-        if (response.ok) {
-          textEl.value = '';
-          loadFeed();
-        } else {
-          const err = await response.json();
-          console.error('[post] Failed:', err.error);
-        }
-      } catch (error) {
-        console.error('[post] Error:', error);
-      }
-    }
-
-    // Tab switching via event delegation (works for dynamically created tabs)
-    document.querySelector('.tabs').addEventListener('click', (e) => {
-      const tab = e.target.closest('.tab');
-      if (!tab) return;
-
-      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-      document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-
-      tab.classList.add('active');
-      document.getElementById(tab.dataset.tab).classList.add('active');
     });
 
-    // Search on Enter key
-    document.getElementById('searchInput').addEventListener('keypress', (e) => {
-      if (e.key === 'Enter') search();
+    // Check URL for query
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('q')) {
+      input.value = params.get('q');
+      doSearch();
+    }
+
+    async function doSearch() {
+      const q = input.value.trim();
+      if (!q) return;
+
+      // Update URL without reload
+      const url = new URL(window.location);
+      url.searchParams.set('q', q);
+      history.pushState({}, '', url);
+
+      // Switch to results mode
+      landing.classList.add('has-results');
+      resultsArea.style.display = 'block';
+      discovering.style.display = 'none';
+      resultsList.innerHTML = '<div style="text-align:center;padding:1rem;color:#999;">Searching...</div>';
+      resultCount.textContent = '';
+
+      try {
+        const res = await fetch(`/api/search?q=${encodeURIComponent(q)}`);
+        const data = await res.json();
+
+        if (data.meta?.discovering) {
+          discovering.style.display = 'block';
+          discovering.textContent = data.meta.message;
+        }
+
+        if (data.results.length === 0) {
+          resultCount.textContent = '';
+          resultsList.innerHTML = renderEmpty(q);
+          return;
+        }
+
+        resultCount.textContent = `${data.results.length} result${data.results.length === 1 ? '' : 's'} from the signed web`;
+        resultsList.innerHTML = data.results.map(renderResult).join('');
+      } catch (err) {
+        resultsList.innerHTML = `<div class="no-results"><p>Search error: ${err.message}</p></div>`;
+      }
+    }
+
+    function renderResult(r) {
+      const trustBadge = r.signature.verified
+        ? '<span class="badge badge-verified">Verified</span>'
+        : r.signature.signed
+          ? '<span class="badge badge-signed">Signed</span>'
+          : '<span class="badge badge-open">Open</span>';
+
+      const domain = r.domain
+        ? `<a class="result-domain" href="https://${r.domain}" target="_blank" rel="noopener">${r.domain}</a>`
+        : '';
+
+      const mission = r.mission
+        ? `<div class="result-mission">${escapeHtml(r.mission)}</div>`
+        : '';
+
+      const concepts = r.concepts.length > 0
+        ? `<div class="result-concepts">${r.concepts.slice(0, 8).map(c => `<span class="concept-tag">${escapeHtml(c)}</span>`).join('')}</div>`
+        : '';
+
+      const apps = r.applications.length > 0
+        ? `<div class="result-apps"><strong>Applications:</strong> ${r.applications.map(a => escapeHtml(a.name)).join(', ')}</div>`
+        : '';
+
+      const caps = renderCapabilities(r.capabilities);
+
+      const people = r.people.length > 0
+        ? `<div class="result-apps"><strong>People:</strong> ${r.people.slice(0, 4).map(p => `${escapeHtml(p.name)} (${escapeHtml(p.role)})`).join(', ')}</div>`
+        : '';
+
+      const metaParts = [];
+      if (r.discoveryMethod) metaParts.push(`via ${r.discoveryMethod}`);
+      if (r.signature.digitalName) metaParts.push(`${r.signature.digitalName.slice(0,10)}...`);
+      if (r.lastChecked) metaParts.push(`checked ${new Date(r.lastChecked).toLocaleDateString()}`);
+      const meta = metaParts.length > 0
+        ? `<div class="result-meta">${metaParts.join(' &middot; ')}</div>`
+        : '';
+
+      const claim = (!r.signature.signed && r.domain)
+        ? `<div class="claim-link"><a href="https://rootz.global/ai-discovery" target="_blank" rel="noopener">Claim this listing</a> &mdash; add a signature to own your search result</div>`
+        : '';
+
+      return `
+        <div class="result">
+          <div class="result-header">
+            <span class="result-name">${escapeHtml(r.name)}</span>
+            ${domain}
+            <span class="result-trust">${trustBadge}</span>
+          </div>
+          ${mission}
+          ${concepts}
+          ${apps}
+          ${people}
+          ${caps}
+          ${meta}
+          ${claim}
+        </div>
+      `;
+    }
+
+    function renderCapabilities(caps) {
+      if (!caps) return '';
+      const available = [];
+      for (const [key, val] of Object.entries(caps)) {
+        if (val && (val === true || val.available)) {
+          available.push(key);
+        }
+      }
+      if (available.length === 0) return '';
+      return `<div class="result-capabilities">${available.map(c => `<span class="cap-tag">${c}</span>`).join('')}</div>`;
+    }
+
+    function renderEmpty(q) {
+      return `
+        <div class="no-results">
+          <h3>No signed results for "${escapeHtml(q)}"</h3>
+          <p>
+            Epistery only indexes sites that publish authored, signed data.<br>
+            If you own this domain, publish <code>/.well-known/ai</code> to appear here.<br>
+            See the <a href="https://rootz.global/ai-discovery" style="color:#3498db">AI Discovery Standard</a>.
+          </p>
+        </div>
+      `;
+    }
+
+    function escapeHtml(str) {
+      if (!str) return '';
+      const div = document.createElement('div');
+      div.textContent = str;
+      return div.innerHTML;
+    }
+
+    // Handle back/forward
+    window.addEventListener('popstate', () => {
+      const p = new URLSearchParams(window.location.search);
+      if (p.get('q')) {
+        input.value = p.get('q');
+        doSearch();
+      } else {
+        landing.classList.remove('has-results');
+        resultsArea.style.display = 'none';
+        resultsList.innerHTML = '';
+      }
     });
-
-    async function search() {
-      const query = document.getElementById('searchInput').value.trim();
-      if (!query) return;
-
-      document.getElementById('results').style.display = 'block';
-      showLoading();
-
-      try {
-        const response = await fetch(`/api/search?q=${encodeURIComponent(query)}`);
-        const data = await response.json();
-
-        displayResults(data);
-      } catch (error) {
-        showError('Search failed: ' + error.message);
-      }
-    }
-
-    function showLoading() {
-      // Restore default tabs (may have been replaced by AIDiscovery)
-      resetToDefaultTabs();
-      document.getElementById('overview').innerHTML = '<div class="loading">Loading...</div>';
-      document.getElementById('transactions').innerHTML = '<div class="empty-state">No transactions found</div>';
-      document.getElementById('events').innerHTML = '<div class="empty-state">No events found</div>';
-      document.getElementById('data').innerHTML = '<div class="empty-state">No data found</div>';
-    }
-
-    function resetToDefaultTabs() {
-      const resultsEl = document.getElementById('results');
-      const hasFollows = getFollows().length > 0;
-
-      // Restore tab bar
-      document.querySelector('.tabs').innerHTML = `
-        <button class="tab" data-tab="feed" style="${hasFollows ? '' : 'display:none'}">Feed</button>
-        <button class="tab active" data-tab="overview">Overview</button>
-        <button class="tab" data-tab="transactions">Transactions</button>
-        <button class="tab" data-tab="events">Events</button>
-        <button class="tab" data-tab="data">Object Data</button>
-      `;
-
-      // Restore tab content divs
-      resultsEl.querySelectorAll('.tab-content').forEach(el => el.remove());
-      resultsEl.insertAdjacentHTML('beforeend', `
-        <div class="tab-content" id="feed"><div class="empty-state">Search for a contract, wallet, or domain and click <strong>Follow</strong> to build your feed.</div></div>
-        <div class="tab-content active" id="overview"><div class="loading">Loading...</div></div>
-        <div class="tab-content" id="transactions"><div class="empty-state">No transactions found</div></div>
-        <div class="tab-content" id="events"><div class="empty-state">No events found</div></div>
-        <div class="tab-content" id="data"><div class="empty-state">No data found</div></div>
-      `);
-    }
-
-    function showError(message) {
-      document.getElementById('overview').innerHTML = `<div class="empty-state">${message}</div>`;
-    }
-
-    async function displayResults(data) {
-      // Handle new chain-first response format
-      if (data.found && data.data) {
-        if (data.type === 'contract' || data.type === 'wallet') {
-          // Convert to array format for displayEntities
-          displayEntities([data.data]);
-
-          // Load events for this address
-          loadEvents(data.data.address, data.chain);
-        } else if (data.type === 'transaction') {
-          displayTransactions([data.data]);
-        } else if (data.type === 'search') {
-          // Text search results
-          displayEntities(data.data);
-        }
-      } else if (data.suggestion) {
-        displaySuggestion(data.suggestion);
-      } else {
-        // For domain-like queries, point to discovery page
-        const q = document.getElementById('searchInput').value.trim();
-        if (q.includes('.') && !q.startsWith('0x')) {
-          document.getElementById('overview').innerHTML =
-            '<div class="empty-state">No blockchain results for this domain.<br>' +
-            '<small style="color:#999;">Looking for AI discovery? <a href="/discovery" style="color:#3498db;">Check the AI Discovery page</a></small></div>';
-        } else {
-          document.getElementById('overview').innerHTML = '<div class="empty-state">No results found</div>';
-        }
-      }
-    }
-
-    function displayEntities(entities) {
-      // Check if any entity is AIDiscovery — use dedicated renderer
-      const aiEntities = entities.filter(e => e.type === 'AIDiscovery');
-      if (aiEntities.length > 0 && aiEntities.length === entities.length) {
-        displayAIDiscovery(aiEntities);
-        return;
-      }
-
-      // Store entities for click-through from mixed results
-      window._lastEntities = entities;
-
-      const html = entities.map((entity, idx) => {
-        if (entity.type === 'AIDiscovery') {
-          // Inline summary card for mixed results
-          const manifest = entity.metadata?.manifest || {};
-          const org = manifest.organization || {};
-          return `
-          <div class="entity-card" style="cursor:pointer;" onclick="displayAIDiscovery([window._lastEntities[${idx}]])">
-            <h3>
-              <span class="badge aidiscovery">AIDiscovery</span>
-              <span class="badge web">web</span>
-              ${followButtonHtml(entity.address, 'AIDiscovery', 'web', entity.address)}
-            </h3>
-            <div class="address"><a href="https://${entity.address}" target="_blank">${entity.address}</a></div>
-            <div class="meta">
-              ${org.name ? `<span><strong>Org:</strong> ${org.name}</span>` : ''}
-              ${org.description ? `<span>${org.description}</span>` : ''}
-            </div>
-          </div>`;
-        }
-        return `
-        <div class="entity-card">
-          <h3>
-            <span class="badge ${entity.type.toLowerCase()}">${entity.type}</span>
-            <span class="badge ${entity.chain}">${entity.chain}</span>
-            ${followButtonHtml(entity.address, entity.type, entity.chain, entity.metadata?.domain || entity.address)}
-          </h3>
-          <div class="address">${entity.address}</div>
-          <div class="meta">
-            ${entity.metadata?.domain ? `<span><strong>Domain:</strong> ${entity.metadata.domain}</span>` : ''}
-            ${entity.metadata?.owner ? `<span><strong>Owner:</strong> <code>${entity.metadata.owner}</code></span>` : ''}
-            ${entity._created ? `<span><strong>First seen:</strong> ${new Date(entity._created).toLocaleString()}</span>` : ''}
-            ${entity._modified ? `<span><strong>Last updated:</strong> ${new Date(entity._modified).toLocaleString()}</span>` : ''}
-            ${entity.lastProcessedBlock ? `<span><strong>Last block scanned:</strong> ${entity.lastProcessedBlock}</span>` : ''}
-          </div>
-        </div>
-      `;
-      }).join('');
-
-      document.getElementById('overview').innerHTML = html;
-    }
-
-    function displayAIDiscovery(entities) {
-      // Take the first entity for full display
-      const entity = entities[0];
-      const manifest = entity.metadata?.manifest || {};
-      const verification = entity.metadata?.verification;
-      const discoveryMethod = entity.metadata?.discoveryMethod || 'native';
-      const manifestUrl = entity.metadata?.manifestUrl || '';
-      const txtVerification = entity.metadata?.txtVerification || {};
-      const org = manifest.organization || {};
-
-      // Rewrite tabs for AIDiscovery
-      document.querySelector('.tabs').innerHTML = `
-        <button class="tab active" data-tab="overview">Overview</button>
-        <button class="tab" data-tab="pages">Pages</button>
-        <button class="tab" data-tab="apis">APIs</button>
-        <button class="tab" data-tab="policies">Policies</button>
-        <button class="tab" data-tab="concepts">Concepts</button>
-        <button class="tab" data-tab="raw">Raw JSON</button>
-      `;
-
-      // Create tab content containers
-      const resultsEl = document.getElementById('results');
-      // Remove old tab content divs
-      resultsEl.querySelectorAll('.tab-content').forEach(el => el.remove());
-
-      // Build Overview
-      let overviewHtml = '<div class="tab-content active" id="overview">';
-
-      // Domain header with verification badge
-      let badgeClass = 'unsigned';
-      let badgeText = 'Unsigned';
-      if (verification?.hashValid) {
-        badgeClass = 'verified';
-        badgeText = 'Verified';
-      } else if (verification?.signed) {
-        badgeClass = 'signed';
-        badgeText = 'Signed';
-      }
-
-      const methodLabels = {
-        'native': '/.well-known/ai',
-        'link-tag': '<link> tag',
-        'subdomain': 'ai.* subdomain',
-        'dns-txt': 'DNS TXT'
-      };
-      const methodLabel = methodLabels[discoveryMethod] || discoveryMethod;
-
-      const txtBadgeHtml = txtVerification.hasTxtRecord
-        ? '<span class="verification-badge verified" style="margin-left:0.5rem;">TXT Verified</span>'
-        : '<span class="verification-badge" style="margin-left:0.5rem;background:#e0e0e0;color:#888;">No TXT record</span>';
-
-      overviewHtml += `<h3>
-        <a href="https://${entity.address}" target="_blank" style="color:#3498db;">${entity.address}</a>
-        <span class="verification-badge ${badgeClass}">${badgeText}</span>
-        ${txtBadgeHtml}
-      </h3>`;
-
-      overviewHtml += `<div style="margin:0.5rem 0;font-size:0.85rem;color:#666;">
-        <strong>Discovered via:</strong> ${methodLabel}
-        ${manifestUrl ? ` &mdash; <code style="font-size:0.8rem;">${manifestUrl}</code>` : ''}
-        ${txtVerification.txtHost ? `<br><strong>TXT delegation host:</strong> ${txtVerification.txtHost}` : ''}
-      </div>`;
-
-      // Organization table
-      if (org.name || org.domain || org.description) {
-        overviewHtml += '<h4 style="margin-top:1.5rem;">Organization</h4>';
-        overviewHtml += '<table class="manifest-table"><tbody>';
-        if (org.name) overviewHtml += `<tr><th>Name</th><td>${org.name}</td></tr>`;
-        if (org.domain) overviewHtml += `<tr><th>Domain</th><td>${org.domain}</td></tr>`;
-        if (org.description) overviewHtml += `<tr><th>Description</th><td>${org.description}</td></tr>`;
-        overviewHtml += '</tbody></table>';
-      }
-
-      // Capabilities table
-      const caps = manifest.capabilities || {};
-      const capKeys = Object.keys(caps);
-      if (capKeys.length > 0) {
-        overviewHtml += '<h4 style="margin-top:1.5rem;">Capabilities</h4>';
-        overviewHtml += '<table class="manifest-table"><thead><tr><th>Capability</th><th>Details</th></tr></thead><tbody>';
-        for (const key of capKeys) {
-          const val = caps[key];
-          let detail = '';
-          if (typeof val === 'boolean') {
-            detail = val ? 'Available' : 'Not available';
-          } else if (typeof val === 'object' && val !== null) {
-            detail = val.description || (val.available ? 'Available' : 'Configured');
-            if (val.url) detail += ` &mdash; <code>${val.url}</code>`;
-          } else {
-            detail = String(val);
-          }
-          overviewHtml += `<tr><td><strong>${key}</strong></td><td>${detail}</td></tr>`;
-        }
-        overviewHtml += '</tbody></table>';
-      }
-
-      // Stats table
-      if (manifest.stats) {
-        overviewHtml += '<h4 style="margin-top:1.5rem;">Stats</h4>';
-        overviewHtml += '<table class="manifest-table"><tbody>';
-        for (const [key, val] of Object.entries(manifest.stats)) {
-          overviewHtml += `<tr><th>${key}</th><td>${val}</td></tr>`;
-        }
-        overviewHtml += '</tbody></table>';
-      }
-
-      // Instructions
-      if (manifest.instructions) {
-        overviewHtml += '<h4 style="margin-top:1.5rem;">Instructions</h4>';
-        if (manifest.instructions.forAI) {
-          overviewHtml += `<div style="margin:0.5rem 0;padding:1rem;background:#f9f9f9;border-radius:4px;border-left:3px solid #3498db;font-size:0.9rem;">
-            <strong>For AI:</strong> ${manifest.instructions.forAI}
-          </div>`;
-        }
-        if (manifest.instructions.rateLimit) {
-          overviewHtml += `<div style="margin:0.5rem 0;padding:1rem;background:#f9f9f9;border-radius:4px;border-left:3px solid #f39c12;font-size:0.9rem;">
-            <strong>Rate Limit:</strong> ${manifest.instructions.rateLimit}
-          </div>`;
-        }
-      }
-
-      // Contact
-      if (manifest.contact) {
-        overviewHtml += '<h4 style="margin-top:1.5rem;">Contact</h4>';
-        overviewHtml += '<table class="manifest-table"><tbody>';
-        for (const [key, val] of Object.entries(manifest.contact)) {
-          const display = (typeof val === 'string' && val.startsWith('http'))
-            ? `<a href="${val}" target="_blank">${val}</a>` : val;
-          overviewHtml += `<tr><th>${key}</th><td>${display}</td></tr>`;
-        }
-        overviewHtml += '</tbody></table>';
-      }
-
-      overviewHtml += '</div>';
-
-      // Build APIs tab
-      let apisHtml = '<div class="tab-content" id="apis">';
-      const apis = manifest.apis || {};
-      const apiKeys = Object.keys(apis);
-      if (apiKeys.length > 0) {
-        apisHtml += '<table class="manifest-table"><thead><tr><th>Name</th><th>URL</th><th>Method</th><th>Description</th></tr></thead><tbody>';
-        for (const key of apiKeys) {
-          const api = apis[key];
-          const method = api.method || (api.methods ? api.methods.join(', ') : 'GET');
-          apisHtml += `<tr><td><strong>${key}</strong></td><td><code>${api.url || ''}</code></td><td>${method}</td><td>${api.description || ''}</td></tr>`;
-        }
-        apisHtml += '</tbody></table>';
-      } else {
-        apisHtml += '<div class="empty-state">No APIs declared</div>';
-      }
-      apisHtml += '</div>';
-
-      // Build Pages tab
-      let pagesHtml = '<div class="tab-content" id="pages">';
-      const pages = manifest.pages || [];
-      if (pages.length > 0) {
-        pagesHtml += '<table class="manifest-table"><thead><tr><th>Path</th><th>Title</th><th>Purpose</th><th>Concepts</th></tr></thead><tbody>';
-        for (const p of pages) {
-          const pageUrl = `https://${entity.address}${p.path}`;
-          const conceptTags = (p.concepts || []).map(c => `<span class="badge" style="margin:0.1rem;">${c}</span>`).join(' ');
-          const purpose = p.purpose || '';
-          pagesHtml += `<tr>
-            <td><a href="${pageUrl}" target="_blank"><code>${p.path}</code></a></td>
-            <td>${p.title || ''}</td>
-            <td>${purpose}</td>
-            <td>${conceptTags}</td>
-          </tr>`;
-        }
-        pagesHtml += '</tbody></table>';
-      } else {
-        pagesHtml += '<div class="empty-state">No pages declared</div>';
-      }
-      pagesHtml += '</div>';
-
-      // Build Policies tab
-      let policiesHtml = '<div class="tab-content" id="policies">';
-      const policies = manifest.policies || {};
-      const policyKeys = Object.keys(policies).filter(k => k !== 'detailsUrl');
-      if (policyKeys.length > 0 || policies.detailsUrl) {
-        policiesHtml += '<table class="manifest-table"><thead><tr><th>Policy</th><th>Details</th></tr></thead><tbody>';
-        for (const key of policyKeys) {
-          const pol = policies[key];
-          let detail = '';
-          if (typeof pol === 'string') {
-            detail = pol.startsWith('http') ? `<a href="${pol}" target="_blank">${pol}</a>` : pol;
-          } else if (typeof pol === 'object' && pol !== null) {
-            const parts = [];
-            if (pol.type) parts.push(`<strong>${pol.type}</strong>`);
-            if (pol.url) parts.push(`<a href="${pol.url}" target="_blank">${pol.url}</a>`);
-            if (pol.restrictions) parts.push(`Restrictions: ${pol.restrictions.join(', ')}`);
-            // Show any other fields
-            for (const [k, v] of Object.entries(pol)) {
-              if (!['type', 'url', 'restrictions'].includes(k)) {
-                parts.push(`${k}: ${typeof v === 'object' ? JSON.stringify(v) : v}`);
-              }
-            }
-            detail = parts.join('<br>');
-          }
-          policiesHtml += `<tr><td><strong>${key}</strong></td><td>${detail}</td></tr>`;
-        }
-        if (policies.detailsUrl) {
-          const detailsUrl = policies.detailsUrl.startsWith('http')
-            ? policies.detailsUrl
-            : `https://${entity.address}${policies.detailsUrl}`;
-          policiesHtml += `<tr><td><strong>Full Details</strong></td><td><a href="${detailsUrl}" target="_blank">${policies.detailsUrl}</a></td></tr>`;
-        }
-        policiesHtml += '</tbody></table>';
-      } else {
-        policiesHtml += '<div class="empty-state">No policies declared</div>';
-      }
-      policiesHtml += '</div>';
-
-      // Build Concepts tab
-      let conceptsHtml = '<div class="tab-content" id="concepts">';
-      const concepts = manifest.coreConcepts || [];
-      if (concepts.length > 0) {
-        conceptsHtml += '<table class="manifest-table"><thead><tr><th>Term</th><th>Definition</th></tr></thead><tbody>';
-        for (const c of concepts) {
-          conceptsHtml += `<tr><td><strong>${c.term}</strong></td><td>${c.definition}</td></tr>`;
-        }
-        conceptsHtml += '</tbody></table>';
-      } else {
-        conceptsHtml += '<div class="empty-state">No core concepts declared</div>';
-      }
-      conceptsHtml += '</div>';
-
-      // Build Raw JSON tab
-      const rawHtml = `<div class="tab-content" id="raw"><pre style="white-space:pre-wrap;word-break:break-word;font-size:0.85rem;">${JSON.stringify(manifest, null, 2).replace(/</g, '&lt;').replace(/>/g, '&gt;')}</pre></div>`;
-
-      // Append all tab content
-      resultsEl.insertAdjacentHTML('beforeend', overviewHtml + pagesHtml + apisHtml + policiesHtml + conceptsHtml + rawHtml);
-    }
-
-    function displaySuggestion(suggestion) {
-      const html = `
-        <div class="suggestion">
-          <strong>${suggestion.message}</strong>
-          <br>
-          <button onclick="addMonitor('${suggestion.value}')">Monitor this address</button>
-        </div>
-      `;
-      document.getElementById('overview').innerHTML = html;
-    }
-
-    async function addMonitor(address) {
-      const type = prompt('Enter contract type (Agent, IdentityContract, or CampaignWallet):');
-      if (!type) return;
-
-      const chain = prompt('Enter chain (ethereum, polygon):', 'ethereum');
-      if (!chain) return;
-
-      try {
-        const response = await fetch('/api/monitor', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ address, chain, type })
-        });
-
-        const result = await response.json();
-        alert(result.message || 'Monitor added successfully!');
-
-        // Search again to show the new entity
-        search();
-      } catch (error) {
-        alert('Failed to add monitor: ' + error.message);
-      }
-    }
-
-    async function loadEvents(address, chain) {
-      try {
-        // Use new chain-first events endpoint
-        const response = await fetch(`/api/search/events/${address}?chain=${chain || 'polygon'}&limit=200`);
-        const data = await response.json();
-
-        if (data.events && data.events.length > 0) {
-          displayEvents(data.events);
-          displayObjectData(data.events);
-        }
-      } catch (error) {
-        console.error('Failed to load events:', error);
-      }
-    }
-
-    function displayObjectData(events) {
-      // Reconstruct current state from events (process in chronological order)
-      const acls = {};
-      const attributes = {};
-      let currentOwner = null;
-
-      // Campaign data
-      const promotions = {};
-      let totalPayout = 0;
-      let totalWithdrawn = 0;
-      let totalBudgetAdded = 0;
-      let campaignStatus = 'active';
-
-      // Sort events by timestamp (oldest first) to replay history
-      const sortedEvents = [...events].sort((a, b) => a.timestamp - b.timestamp);
-
-      sortedEvents.forEach(event => {
-        // Agent events
-        if (event.type === 'agent.ACLModified') {
-          const key = `${event.listName}:${event.addr}`;
-          if (event.action === 'add') {
-            acls[key] = {
-              listName: event.listName,
-              addr: event.addr,
-              timestamp: event.timestamp,
-              addedBy: event.owner
-            };
-          } else if (event.action === 'remove') {
-            delete acls[key];
-          }
-        } else if (event.type === 'agent.AttributeSet') {
-          attributes[event.key] = {
-            key: event.key,
-            isPrivate: event.isPrivate,
-            timestamp: event.timestamp,
-            setBy: event.owner
-          };
-        } else if (event.type === 'agent.AttributeDeleted') {
-          delete attributes[event.key];
-        } else if (event.type === 'agent.OwnershipTransferred') {
-          currentOwner = event.newOwner;
-        }
-
-        // Campaign events (v2)
-        else if (event.type === 'campaign.PromotionAdded') {
-          promotions[event.promotionId] = {
-            id: event.promotionId,
-            creative: event.creative,
-            active: true,
-            addedAt: event.timestamp
-          };
-        } else if (event.type === 'campaign.PromotionUpdated') {
-          const promo = Object.values(promotions)[event.index];
-          if (promo) promo.active = event.active;
-        } else if (event.type === 'campaign.BatchSubmitted') {
-          totalPayout += parseInt(event.payout);
-        } else if (event.type === 'campaign.Withdrawn') {
-          totalWithdrawn += parseInt(event.amount);
-        } else if (event.type === 'campaign.BudgetAdded') {
-          totalBudgetAdded += parseInt(event.amount);
-        } else if (event.type === 'campaign.CampaignPaused') {
-          campaignStatus = 'paused';
-        } else if (event.type === 'campaign.CampaignUnpaused') {
-          campaignStatus = 'active';
-        }
-      });
-
-      let html = '<div style="padding: 1rem;">';
-
-      // Current Owner
-      if (currentOwner) {
-        html += '<h3>Current Owner</h3>';
-        html += `<div style="margin: 1rem 0; padding: 1rem; background: #f0f0f0; border-radius: 4px;">`;
-        html += `<code>${currentOwner}</code>`;
-        html += '</div>';
-      }
-
-      // Access Control Lists
-      html += '<h3 style="margin-top: 2rem;">Access Control Lists</h3>';
-      const aclsByList = {};
-      Object.values(acls).forEach(acl => {
-        if (!aclsByList[acl.listName]) aclsByList[acl.listName] = [];
-        aclsByList[acl.listName].push(acl);
-      });
-
-      if (Object.keys(aclsByList).length > 0) {
-        html += '<div style="margin: 1rem 0;">';
-        Object.entries(aclsByList).sort().forEach(([listName, members]) => {
-          html += `<div style="margin-bottom: 1.5rem; padding: 1rem; background: #f9f9f9; border-radius: 4px; border-left: 3px solid #3498db;">`;
-          html += `<div style="margin-bottom: 0.5rem;"><span class="badge">${listName}</span> <span style="color: #666; font-size: 0.9rem;">${members.length} member${members.length !== 1 ? 's' : ''}</span></div>`;
-          html += '<div style="font-family: monospace; font-size: 0.85rem;">';
-          members.forEach(m => {
-            const shortAddr = `${m.addr.substring(0, 10)}...${m.addr.substring(38)}`;
-            html += `<div style="padding: 0.25rem 0; display: flex; justify-content: space-between;">`;
-            html += `<span><code>${shortAddr}</code></span>`;
-            html += `<span style="color: #999; font-size: 0.8rem;">${new Date(m.timestamp * 1000).toLocaleDateString()}</span>`;
-            html += `</div>`;
-            html += `<div style="color: #999; font-size: 0.75rem; margin-bottom: 0.5rem;">${m.addr}</div>`;
-          });
-          html += '</div></div>';
-        });
-        html += '</div>';
-      } else {
-        html += '<p style="color: #999; margin: 1rem 0;">No ACL entries</p>';
-      }
-
-      // Attributes
-      html += '<h3 style="margin-top: 2rem;">Attributes</h3>';
-      if (Object.keys(attributes).length > 0) {
-        html += '<div style="margin: 1rem 0;">';
-        Object.values(attributes).sort((a, b) => a.key.localeCompare(b.key)).forEach(attr => {
-          const privacy = attr.isPrivate ? '🔒 Private' : '🔓 Public';
-          html += `<div style="padding: 0.75rem; margin-bottom: 0.5rem; background: #f9f9f9; border-radius: 4px; border-left: 3px solid ${attr.isPrivate ? '#e74c3c' : '#2ecc71'};">`;
-          html += `<div style="display: flex; justify-content: space-between; align-items: center;">`;
-          html += `<strong>${attr.key}</strong>`;
-          html += `<span style="font-size: 0.85rem;">${privacy}</span>`;
-          html += `</div>`;
-          html += `<div style="color: #999; font-size: 0.8rem; margin-top: 0.25rem;">Last modified: ${new Date(attr.timestamp * 1000).toLocaleString()}</div>`;
-          html += '</div>';
-        });
-        html += '</div>';
-      } else {
-        html += '<p style="color: #999; margin: 1rem 0;">No attributes set</p>';
-      }
-
-      // Campaign Data (v2)
-      if (Object.keys(promotions).length > 0 || totalPayout > 0) {
-        html += '<h3 style="margin-top: 2rem;">📢 Campaign Overview</h3>';
-        html += `<div style="margin: 1rem 0; padding: 1rem; background: #f9f9f9; border-radius: 4px; border-left: 3px solid #f39c12;">`;
-        const statusIcon = campaignStatus === 'active' ? '▶️' : '⏸️';
-        const statusColor = campaignStatus === 'active' ? '#2ecc71' : '#95a5a6';
-        html += `<div style="margin-bottom: 0.5rem;"><strong>Status:</strong> <span style="color: ${statusColor};">${statusIcon} ${campaignStatus}</span></div>`;
-        html += `<div style="margin-bottom: 0.5rem;"><strong>Promotions:</strong> ${Object.keys(promotions).length}</div>`;
-        html += '</div>';
-
-        // Campaign Stats
-        if (totalPayout > 0 || totalWithdrawn > 0 || totalBudgetAdded > 0) {
-          html += '<h3 style="margin-top: 2rem;">📊 Campaign Financials</h3>';
-          html += `<div style="margin: 1rem 0; padding: 1rem; background: #f9f9f9; border-radius: 4px;">`;
-          html += `<div style="display: flex; gap: 2rem; flex-wrap: wrap;">`;
-          if (totalBudgetAdded > 0) {
-            const budgetMatic = (totalBudgetAdded / 1e18).toFixed(6);
-            html += `<div><strong>💵 Budget Added:</strong> ${budgetMatic} MATIC</div>`;
-          }
-          if (totalPayout > 0) {
-            const payoutMatic = (totalPayout / 1e18).toFixed(6);
-            html += `<div><strong>💰 Total Payout:</strong> ${payoutMatic} MATIC</div>`;
-          }
-          if (totalWithdrawn > 0) {
-            const withdrawnMatic = (totalWithdrawn / 1e18).toFixed(6);
-            html += `<div><strong>💸 Total Withdrawn:</strong> ${withdrawnMatic} MATIC</div>`;
-          }
-          if (totalBudgetAdded > 0 && totalWithdrawn > 0) {
-            const remaining = (totalBudgetAdded - totalWithdrawn) / 1e18;
-            html += `<div><strong>💼 Remaining:</strong> ${remaining.toFixed(6)} MATIC</div>`;
-          }
-          html += `</div>`;
-          html += '</div>';
-        }
-
-        // Promotions
-        if (Object.keys(promotions).length > 0) {
-          html += '<h3 style="margin-top: 2rem;">🎨 Promotions</h3>';
-          html += '<div style="margin: 1rem 0;">';
-          Object.values(promotions).forEach(promo => {
-            const status = promo.active ? '✅ Active' : '❌ Inactive';
-            html += `<div style="margin-bottom: 1rem; padding: 1rem; background: #f9f9f9; border-radius: 4px; border-left: 3px solid ${promo.active ? '#2ecc71' : '#95a5a6'};">`;
-            html += `<div style="margin-bottom: 0.5rem;"><strong>ID: ${promo.id}</strong> <span style="font-size: 0.85rem; margin-left: 0.5rem;">${status}</span></div>`;
-            html += `<div style="font-size: 0.85rem; color: #666; margin-bottom: 0.5rem;">Creative (IPFS): <code>${promo.creative}</code></div>`;
-            html += `<div style="font-size: 0.75rem; color: #999;">Added: ${new Date(promo.addedAt * 1000).toLocaleString()}</div>`;
-            html += '</div>';
-          });
-          html += '</div>';
-        }
-      }
-
-      html += '</div>';
-
-      document.getElementById('data').innerHTML = html;
-    }
-
-    function displayEvents(events) {
-      const html = events.map(event => {
-        // Convert timestamp from seconds to milliseconds if needed
-        const ts = event.timestamp > 10000000000 ? event.timestamp : event.timestamp * 1000;
-
-        // Interpret event based on type
-        let eventDescription = '';
-        let eventDetails = '';
-
-        if (event.type === 'agent.ACLModified') {
-          const shortAddr = `${event.addr.substring(0, 6)}...${event.addr.substring(38)}`;
-          const shortOwner = `${event.owner.substring(0, 6)}...${event.owner.substring(38)}`;
-
-          if (event.action === 'add') {
-            eventDescription = `<strong>${shortOwner}</strong> added <code>${shortAddr}</code> to <span class="badge">${event.listName}</span>`;
-          } else if (event.action === 'remove') {
-            eventDescription = `<strong>${shortOwner}</strong> removed <code>${shortAddr}</code> from <span class="badge">${event.listName}</span>`;
-          }
-
-          eventDetails = `
-            <div style="margin-top: 0.5rem; font-size: 0.85rem; color: #666;">
-              Owner: <code>${event.owner}</code><br>
-              Address: <code>${event.addr}</code><br>
-              List: ${event.listName}<br>
-              Action: ${event.action}
-            </div>
-          `;
-        } else if (event.type === 'agent.AttributeSet') {
-          const shortOwner = `${event.owner.substring(0, 6)}...${event.owner.substring(38)}`;
-          const privacy = event.isPrivate ? '🔒 private' : '🔓 public';
-
-          eventDescription = `<strong>${shortOwner}</strong> set ${privacy} attribute <code>${event.key}</code>`;
-
-          eventDetails = `
-            <div style="margin-top: 0.5rem; font-size: 0.85rem; color: #666;">
-              Owner: <code>${event.owner}</code><br>
-              Key: ${event.key}<br>
-              Privacy: ${event.isPrivate ? 'Private (encrypted)' : 'Public (readable)'}
-            </div>
-          `;
-        } else if (event.type === 'agent.AttributeDeleted') {
-          const shortOwner = `${event.owner.substring(0, 6)}...${event.owner.substring(38)}`;
-
-          eventDescription = `<strong>${shortOwner}</strong> deleted attribute <code>${event.key}</code>`;
-
-          eventDetails = `
-            <div style="margin-top: 0.5rem; font-size: 0.85rem; color: #666;">
-              Owner: <code>${event.owner}</code><br>
-              Key: ${event.key}
-            </div>
-          `;
-        } else if (event.type === 'agent.OwnershipTransferred') {
-          const shortPrev = `${event.previousOwner.substring(0, 6)}...${event.previousOwner.substring(38)}`;
-          const shortNew = `${event.newOwner.substring(0, 6)}...${event.newOwner.substring(38)}`;
-
-          eventDescription = `Ownership transferred from <code>${shortPrev}</code> to <code>${shortNew}</code>`;
-
-          eventDetails = `
-            <div style="margin-top: 0.5rem; font-size: 0.85rem; color: #666;">
-              Previous Owner: <code>${event.previousOwner}</code><br>
-              New Owner: <code>${event.newOwner}</code>
-            </div>
-          `;
-        } else if (event.type === 'campaign.BatchSubmitted') {
-          const shortPublisher = `${event.publisher.substring(0, 6)}...${event.publisher.substring(38)}`;
-          const payoutMatic = (parseFloat(event.payout) / 1e18).toFixed(6);
-
-          eventDescription = `📊 Batch submitted by ${shortPublisher}: ${payoutMatic} MATIC payout`;
-
-          eventDetails = `
-            <div style="margin-top: 0.5rem; font-size: 0.85rem; color: #666;">
-              Publisher: <code>${event.publisher}</code><br>
-              Payout: ${payoutMatic} MATIC (${event.payout} wei)<br>
-              IPFS CID: <code>${event.ipfsCID}</code><br>
-              Hash: ${event.lastHash}
-            </div>
-          `;
-        } else if (event.type === 'campaign.Withdrawn') {
-          const shortPublisher = `${event.publisher.substring(0, 6)}...${event.publisher.substring(38)}`;
-          const amountMatic = (parseFloat(event.amount) / 1e18).toFixed(6);
-
-          eventDescription = `💸 ${shortPublisher} withdrew ${amountMatic} MATIC`;
-
-          eventDetails = `
-            <div style="margin-top: 0.5rem; font-size: 0.85rem; color: #666;">
-              Publisher: <code>${event.publisher}</code><br>
-              Amount: ${amountMatic} MATIC (${event.amount} wei)
-            </div>
-          `;
-        } else if (event.type === 'campaign.PromotionAdded') {
-          eventDescription = `➕ Promotion added: <code>${event.promotionId}</code>`;
-
-          eventDetails = `
-            <div style="margin-top: 0.5rem; font-size: 0.85rem; color: #666;">
-              Promotion ID: ${event.promotionId}<br>
-              Creative (IPFS): <code>${event.creative}</code>
-            </div>
-          `;
-        } else if (event.type === 'campaign.PromotionUpdated') {
-          const status = event.active ? '✅ activated' : '❌ deactivated';
-          eventDescription = `🔄 Promotion #${event.index} ${status}`;
-
-          eventDetails = `
-            <div style="margin-top: 0.5rem; font-size: 0.85rem; color: #666;">
-              Promotion Index: ${event.index}<br>
-              Status: ${event.active ? 'Active' : 'Inactive'}
-            </div>
-          `;
-        } else if (event.type === 'campaign.CampaignPaused') {
-          const shortBy = `${event.by.substring(0, 6)}...${event.by.substring(38)}`;
-          eventDescription = `⏸️ Campaign paused by ${shortBy}`;
-
-          eventDetails = `
-            <div style="margin-top: 0.5rem; font-size: 0.85rem; color: #666;">
-              Paused by: <code>${event.by}</code>
-            </div>
-          `;
-        } else if (event.type === 'campaign.CampaignUnpaused') {
-          const shortBy = `${event.by.substring(0, 6)}...${event.by.substring(38)}`;
-          eventDescription = `▶️ Campaign resumed by ${shortBy}`;
-
-          eventDetails = `
-            <div style="margin-top: 0.5rem; font-size: 0.85rem; color: #666;">
-              Resumed by: <code>${event.by}</code>
-            </div>
-          `;
-        } else if (event.type === 'campaign.BudgetAdded') {
-          const shortFrom = `${event.from.substring(0, 6)}...${event.from.substring(38)}`;
-          const amountMatic = (parseFloat(event.amount) / 1e18).toFixed(6);
-
-          eventDescription = `<strong>budget</strong> += ${amountMatic} MATIC <span style="color: #999; font-size: 0.9rem;">(by ${shortFrom})</span>`;
-
-          eventDetails = `
-            <div style="margin-top: 0.5rem; font-size: 0.85rem; color: #666;">
-              From: <code>${event.from}</code><br>
-              Amount: ${amountMatic} MATIC (${event.amount} wei)
-            </div>
-          `;
-        } else if (event.type === 'system.OwnershipTransferred') {
-          const shortPrev = event.previousOwner === '0x0000000000000000000000000000000000000000' ? '∅' : `${event.previousOwner.substring(0, 6)}...${event.previousOwner.substring(38)}`;
-          const shortNew = `${event.newOwner.substring(0, 6)}...${event.newOwner.substring(38)}`;
-
-          eventDescription = `<strong>owner</strong> = ${shortNew}`;
-
-          eventDetails = `
-            <div style="margin-top: 0.5rem; font-size: 0.85rem; color: #666;">
-              Previous: <code>${event.previousOwner}</code><br>
-              New: <code>${event.newOwner}</code>
-            </div>
-          `;
-        } else if (event.type === 'system.RoleGranted') {
-          const shortAccount = `${event.account.substring(0, 6)}...${event.account.substring(38)}`;
-          const roleName = event.role === '0x97667070c54ef182b0f5858b034beac1b6f3089aa2d3188bb1e8929f4fa9b929' ? 'PUBLISHER_ROLE' :
-                          event.role === '0xb09aa5aeb3702cfd50b6b62bc4532604938f21248a27a1d5ca736082b6819cc1' ? 'ADMIN_ROLE' :
-                          event.role.substring(0, 10);
-
-          eventDescription = `<strong>${roleName}</strong> granted to ${shortAccount}`;
-
-          eventDetails = `
-            <div style="margin-top: 0.5rem; font-size: 0.85rem; color: #666;">
-              Role: <code>${event.role}</code><br>
-              Account: <code>${event.account}</code><br>
-              Granted by: <code>${event.sender}</code>
-            </div>
-          `;
-        } else if (event.type === 'system.RoleRevoked') {
-          const shortAccount = `${event.account.substring(0, 6)}...${event.account.substring(38)}`;
-          const roleName = event.role === '0x97667070c54ef182b0f5858b034beac1b6f3089aa2d3188bb1e8929f4fa9b929' ? 'PUBLISHER_ROLE' :
-                          event.role === '0xb09aa5aeb3702cfd50b6b62bc4532604938f21248a27a1d5ca736082b6819cc1' ? 'ADMIN_ROLE' :
-                          event.role.substring(0, 10);
-
-          eventDescription = `<strong>${roleName}</strong> revoked from ${shortAccount}`;
-
-          eventDetails = `
-            <div style="margin-top: 0.5rem; font-size: 0.85rem; color: #666;">
-              Role: <code>${event.role}</code><br>
-              Account: <code>${event.account}</code><br>
-              Revoked by: <code>${event.sender}</code>
-            </div>
-          `;
-        } else {
-          // Unknown event type - show raw data
-          eventDescription = event.type || 'Unknown Event';
-          const eventData = {...event};
-          delete eventData._id;
-          delete eventData.timestamp;
-          delete eventData.type;
-          eventDetails = `<pre style="font-size: 0.85rem;">${JSON.stringify(eventData, null, 2)}</pre>`;
-        }
-
-        const eventId = `event-${event.blockNumber}-${Math.random().toString(36).substring(7)}`;
-
-        return `
-          <div class="event-row">
-            <div class="event-type">${event.type || 'Unknown'}</div>
-            <div class="event-time">${new Date(ts).toLocaleString()}</div>
-            <div style="margin-top: 0.5rem;">${eventDescription}</div>
-            <div id="${eventId}" style="display: none; margin-top: 0.5rem;">
-              ${eventDetails}
-            </div>
-            <div style="margin-top: 0.5rem; font-size: 0.8rem; color: #999; display: flex; justify-content: space-between; align-items: center;">
-              <span>Block: ${event.blockNumber} | Tx: <code style="font-size: 0.75rem;">${event.transactionHash.substring(0, 20)}...</code></span>
-              <a href="#" onclick="document.getElementById('${eventId}').style.display = document.getElementById('${eventId}').style.display === 'none' ? 'block' : 'none'; this.textContent = this.textContent === '⋯ details' ? '⋯ hide' : '⋯ details'; return false;" style="color: #95a5a6; text-decoration: none; font-size: 0.9rem;">⋯ details</a>
-            </div>
-          </div>
-        `;
-      }).join('');
-
-      document.getElementById('events').innerHTML = html || '<div class="empty-state">No events found</div>';
-    }
-
-    // On page load: if user has follows, show feed as landing view
-    (function initFeed() {
-      const follows = getFollows();
-      if (follows.length > 0) {
-        // Show results container with feed tab active
-        document.getElementById('results').style.display = 'block';
-        const feedTab = document.querySelector('.tab[data-tab="feed"]');
-        if (feedTab) {
-          feedTab.style.display = '';
-          // Activate feed tab
-          document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-          document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-          feedTab.classList.add('active');
-          document.getElementById('feed').classList.add('active');
-          loadFeed();
-        }
-      }
-    })();
-
-    function displayTransactions(transactions) {
-      const html = transactions.map(tx => {
-        // Convert timestamp from seconds to milliseconds if needed
-        const ts = tx.timestamp > 10000000000 ? tx.timestamp : tx.timestamp * 1000;
-
-        return `
-          <div class="event-row">
-            <div class="event-type">Transaction</div>
-            <div class="event-time">${new Date(ts).toLocaleString()}</div>
-            <div class="event-data">
-              Hash: <code>${tx.hash || tx.transactionHash || 'N/A'}</code><br>
-              From: <code>${tx.from || 'N/A'}</code><br>
-              To: <code>${tx.to || 'N/A'}</code><br>
-              Block: ${tx.blockNumber || 'N/A'}<br>
-              Value: ${tx.value || '0'} wei<br>
-              Gas Used: ${tx.gasUsed || 'N/A'}<br>
-              Status: ${tx.status === 1 ? '✓ Success' : tx.status === 0 ? '✗ Failed' : 'N/A'}
-            </div>
-          </div>
-        `;
-      }).join('');
-
-      document.getElementById('transactions').innerHTML = html || '<div class="empty-state">No transactions found</div>';
-    }
   </script>
 </body>
 </html>

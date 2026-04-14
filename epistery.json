@@ -1,0 +1,46 @@
+{
+  "name": "@epistery/scan",
+  "version": "2.0.0",
+  "description": "Search the signed web — authored knowledge indexed from /.well-known/ai manifests",
+  "author": "Rootz Corp",
+  "main": "index.mjs",
+  "icon": "/agent/epistery/scan/icon.svg",
+  "noUserInterface": false,
+  "permissions": [],
+  "config": {},
+  "tools": [
+    {
+      "name": "search",
+      "description": "Search authored knowledge across the signed web — organizations, concepts, applications, people",
+      "method": "GET",
+      "path": "/api/search?q={query}",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": { "type": "string", "description": "Search query — text, domain name, or blockchain address" }
+        },
+        "required": ["query"]
+      }
+    },
+    {
+      "name": "stats",
+      "description": "Index statistics — how much of the signed web is indexed",
+      "method": "GET",
+      "path": "/api/search/stats",
+      "inputSchema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "submit_domain",
+      "description": "Submit a domain for indexing — checks for /.well-known/ai manifest",
+      "method": "POST",
+      "path": "/api/search/submit",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "domain": { "type": "string", "description": "Domain to check for AI Discovery manifest" }
+        },
+        "required": ["domain"]
+      }
+    }
+  ]
+}

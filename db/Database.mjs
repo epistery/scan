@@ -28,6 +28,36 @@ export default class Database {
     await this.entities.createIndex({ chain: 1 });
     await this.entities.createIndex({ 'metadata.domain': 1 });
 
+    // Full-text index for knowledge search across manifest content
+    await this.entities.createIndex({
+      'metadata.manifest.organization.name': 'text',
+      'metadata.manifest.organization.mission': 'text',
+      'metadata.manifest.organization.description': 'text',
+      'metadata.manifest.organization.tagline': 'text',
+      'metadata.manifest.coreConcepts.term': 'text',
+      'metadata.manifest.coreConcepts.definition': 'text',
+      'metadata.manifest.applications.name': 'text',
+      'metadata.manifest.applications.description': 'text',
+      'metadata.manifest.people.name': 'text',
+      'metadata.manifest.people.role': 'text',
+      address: 'text'
+    }, {
+      name: 'knowledge_search',
+      weights: {
+        'metadata.manifest.organization.name': 10,
+        'metadata.manifest.coreConcepts.term': 8,
+        'metadata.manifest.applications.name': 6,
+        'metadata.manifest.organization.mission': 5,
+        'metadata.manifest.coreConcepts.definition': 4,
+        'metadata.manifest.applications.description': 3,
+        'metadata.manifest.organization.description': 3,
+        'metadata.manifest.people.name': 2,
+        'metadata.manifest.people.role': 1,
+        'metadata.manifest.organization.tagline': 2,
+        address: 1
+      }
+    });
+
     // Event indexes for efficient querying
     await this.events.createIndex({ timestamp: -1 });
     await this.events.createIndex({ entityId: 1, timestamp: -1 });

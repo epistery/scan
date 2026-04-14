@@ -1,18 +1,16 @@
 import express from 'express';
 
 /**
- * SearchHandler - Chain-First Architecture
+ * SearchHandler — Knowledge-First Architecture
  *
- * Philosophy: The blockchain is the source of truth. MongoDB is only an index
- * to help us know where to look (which chain, what type of contract).
+ * Philosophy: The web is authored, not scraped. Search returns what organizations
+ * have published and signed via /.well-known/ai manifests. Blockchain provides
+ * the trust substrate — signature verification, identity binding — but is not
+ * the primary search surface.
  *
- * For addresses: Check chain directly for contract code and state
- * For transactions: Fetch directly from chain by hash
- * For events: Read from chain on-demand, reconstruct state live
- *
- * MongoDB stores:
- * - Search index (address -> chain mapping)
- * - Computed state cache (to avoid re-processing all events)
+ * For text queries: Full-text search across indexed manifests (org name, concepts, apps)
+ * For domains: Direct lookup + on-demand discovery if not yet indexed
+ * For addresses: Chain lookup (secondary, for trust verification)
  */
 export default class SearchHandler {
   constructor(connector) {
@@ -29,19 +27,19 @@ export default class SearchHandler {
     const router = express.Router();
 
     /**
-     * Search for an address or transaction
-     * GET /api/search?q=0x123...&chain=polygon
+     * Knowledge search — the main endpoint
+     * GET /api/search?q=blockchain&limit=20
      */
     router.get('/', async (req, res) => {
       try {
         const query = req.query.q;
-        const chainHint = req.query.chain; // Optional: which chain to check first
+        const limit = Math.min(parseInt(req.query.limit) || 20, 100);
 
         if (!query) {
           return res.status(400).json({ error: 'Query parameter "q" is required' });
         }
 
-        const results = await this.search(query, chainHint);
+        const results = await this.search(query, limit);
         res.json(results);
       } catch (error) {
         console.error('[search] Error:', error);
@@ -50,16 +48,17 @@ export default class SearchHandler {
     });
 
     /**
-     * Get details for a specific address on a specific chain
-     * GET /api/search/address/:address?chain=polygon
+     * Get full details for a specific domain or address
+     * GET /api/search/entity/:id
      */
-    router.get('/address/:address', async (req, res) => {
+    router.get('/entity/:id', async (req, res) => {
       try {
-        const address = req.params.address.toLowerCase();
-        const chain = req.query.chain || 'polygon';
-
-        const details = await this.getAddressDetails(address, chain);
-        res.json(details);
+        const id = req.params.id.toLowerCase();
+        const entity = await this.getEntity(id);
+        if (!entity) {
+          return res.status(404).json({ error: 'Not found' });
+        }
+        res.json(entity);
       } catch (error) {
         console.error('[search] Error:', error);
         res.status(500).json({ error: error.message });
@@ -67,16 +66,13 @@ export default class SearchHandler {
     });
 
     /**
-     * Get transaction details
-     * GET /api/search/tx/:hash?chain=polygon
+     * Index stats — how much of the signed web we've indexed
+     * GET /api/search/stats
      */
-    router.get('/tx/:hash', async (req, res) => {
+    router.get('/stats', async (req, res) => {
       try {
-        const txHash = req.params.hash;
-        const chain = req.query.chain || 'polygon';
-
-        const details = await this.getTransactionDetails(txHash, chain);
-        res.json(details);
+        const stats = await this.getStats();
+        res.json(stats);
       } catch (error) {
         console.error('[search] Error:', error);
         res.status(500).json({ error: error.message });
@@ -84,19 +80,18 @@ export default class SearchHandler {
     });
 
     /**
-     * Get events for an address
-     * GET /api/search/events/:address?chain=polygon&fromBlock=0&toBlock=latest&limit=50
+     * Submit a domain for indexing
+     * POST /api/search/submit { domain: "example.com" }
      */
-    router.get('/events/:address', async (req, res) => {
+    router.post('/submit', async (req, res) => {
       try {
-        const address = req.params.address.toLowerCase();
-        const chain = req.query.chain || 'polygon';
-        const fromBlock = req.query.fromBlock ? parseInt(req.query.fromBlock) : undefined;
-        const toBlock = req.query.toBlock || 'latest';
-        const limit = req.query.limit ? parseInt(req.query.limit) : 50;
+        const domain = (req.body.domain || '').trim().toLowerCase();
+        if (!domain || !domain.includes('.')) {
+          return res.status(400).json({ error: 'Valid domain required' });
+        }
 
-        const events = await this.getAddressEvents(address, chain, fromBlock, toBlock, limit);
-        res.json({ address, chain, events });
+        const result = await this.submitDomain(domain);
+        res.json(result);
       } catch (error) {
         console.error('[search] Error:', error);
         res.status(500).json({ error: error.message });
@@ -107,373 +102,213 @@ export default class SearchHandler {
   }
 
   /**
-   * Search - chain-first approach
+   * Search — knowledge first, chain second
    */
-  async search(query, chainHint) {
+  async search(query, limit = 20) {
+    const q = query.trim();
     const results = {
-      query,
-      found: false,
-      type: null,
-      chain: null,
-      data: null
+      query: q,
+      results: [],
+      meta: { total: 0, source: 'signed-web' }
     };
 
-    const q = query.toLowerCase().trim();
-
-    // Address search (0x + 40 hex chars)
+    // Blockchain address — direct chain lookup
     if (/^0x[a-f0-9]{40}$/i.test(q)) {
-      // Check index for known chain
-      const addressRegex = new RegExp(`^${q}$`, 'i');
-      const knownEntity = await this.db.collection('entities').findOne({ address: addressRegex });
-
-      // Determine which chains to check
-      const chainsToCheck = chainHint ? [chainHint] :
-                           knownEntity ? [knownEntity.chain] :
-                           Object.keys(this.ingestion?.connectors || {});
-
-      // Check each chain until we find the contract
-      for (const chain of chainsToCheck) {
-        const connector = this.ingestion?.connectors[chain];
-        if (!connector) continue;
-
-        try {
-          const code = await connector.provider.getCode(q);
-
-          if (code && code !== '0x') {
-            // Found a contract!
-            results.found = true;
-            results.type = 'contract';
-            results.chain = chain;
-            results.data = await this.getAddressDetails(q, chain);
-
-            // Update index in background
-            this.updateIndex(q, chain, 'contract').catch(console.error);
-
-            break;
-          } else {
-            // Check if it's a wallet with transactions
-            const balance = await connector.provider.getBalance(q);
-            const txCount = await connector.provider.getTransactionCount(q);
-
-            if (txCount > 0 || balance > 0n) {
-              results.found = true;
-              results.type = 'wallet';
-              results.chain = chain;
-              results.data = {
-                address: q,
-                chain,
-                balance: balance.toString(),
-                transactionCount: txCount,
-                isContract: false
-              };
-
-              // Update index in background
-              this.updateIndex(q, chain, 'wallet').catch(console.error);
-
-              break;
-            }
-          }
-        } catch (error) {
-          console.error(`[search] Error checking ${chain}:`, error.message);
-        }
+      const entity = await this.db.collection('entities').findOne({
+        address: new RegExp(`^${q}$`, 'i')
+      });
+      if (entity) {
+        results.results.push(this.formatResult(entity));
+        results.meta.total = 1;
       }
-
-      if (!results.found) {
-        results.suggestion = {
-          message: 'Address not found on any configured chains',
-          chains: chainsToCheck
-        };
-      }
+      return results;
     }
-    // Transaction hash search (0x + 64 hex chars)
-    else if (/^0x[a-f0-9]{64}$/i.test(q)) {
-      const chainsToCheck = chainHint ? [chainHint] :
-                           Object.keys(this.ingestion?.connectors || {});
 
-      for (const chain of chainsToCheck) {
-        const connector = this.ingestion?.connectors[chain];
-        if (!connector) continue;
+    // Domain-like query — direct lookup + trigger discovery if unknown
+    if (q.includes('.') && !q.includes(' ')) {
+      const domain = q.toLowerCase();
+      const entity = await this.db.collection('entities').findOne({
+        address: domain, type: 'AIDiscovery'
+      });
 
-        try {
-          const tx = await connector.getTransaction(q);
-          if (tx) {
-            results.found = true;
-            results.type = 'transaction';
-            results.chain = chain;
-            results.data = await this.getTransactionDetails(q, chain);
-            break;
-          }
-        } catch (error) {
-          console.error(`[search] Error checking ${chain}:`, error.message);
-        }
+      if (entity) {
+        results.results.push(this.formatResult(entity));
+        results.meta.total = 1;
+      } else if (this.ingestion?.domainDiscovery) {
+        // Not indexed yet — trigger discovery in background
+        this.ingestion.domainDiscovery.checkDomain(domain).catch(console.error);
+        results.meta.discovering = domain;
+        results.meta.message = `Checking ${domain} for /.well-known/ai manifest...`;
       }
-
-      if (!results.found) {
-        results.suggestion = {
-          message: 'Transaction not found on any configured chains'
-        };
-      }
+      return results;
     }
-    // Text search - use MongoDB index
-    else {
-      const searchRegex = new RegExp(q, 'i');
 
-      // Domain-like queries (contains a dot) trigger on-demand discovery check
-      if (q.includes('.') && this.ingestion?.domainDiscovery) {
-        const existing = await this.db.collection('entities').findOne({
-          address: q, type: 'AIDiscovery'
-        });
-        if (!existing) {
-          // Try to discover in background, don't block the search
-          this.ingestion.domainDiscovery.checkDomain(q).catch(console.error);
-        }
-      }
-
-      const entities = await this.db.collection('entities')
-        .find({
-          $or: [
-            { 'metadata.domain': searchRegex },
-            { 'metadata.owner': searchRegex },
-            { 'metadata.manifest.organization.name': searchRegex },
-            { 'metadata.manifest.coreConcepts.term': searchRegex },
-            { 'metadata.manifest.applications.name': searchRegex },
-            { address: searchRegex, type: 'AIDiscovery' }
-          ]
-        })
-        .limit(20)
+    // Text search — full-text across indexed manifests
+    try {
+      const textResults = await this.db.collection('entities')
+        .find(
+          { $text: { $search: q } },
+          { score: { $meta: 'textScore' } }
+        )
+        .sort({ score: { $meta: 'textScore' } })
+        .limit(limit)
         .toArray();
 
-      if (entities.length > 0) {
-        results.found = true;
-        results.type = 'search';
-        // Attach schema from registry so the UI knows how to render each type
-        results.data = entities.map(entity => {
-          const interpreter = this.ingestion?.registry?.get(entity.type);
-          if (interpreter) {
-            entity.schema = interpreter.getSchema();
-          }
-          return entity;
-        });
+      if (textResults.length > 0) {
+        results.results = textResults.map(e => this.formatResult(e));
+        results.meta.total = textResults.length;
+        return results;
       }
+    } catch (err) {
+      // Text index may not exist yet on empty DB — fall through to regex
+      console.warn('[search] Text search failed, falling back to regex:', err.message);
     }
 
+    // Fallback — regex search across key fields
+    const searchRegex = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+    const entities = await this.db.collection('entities')
+      .find({
+        $or: [
+          { address: searchRegex },
+          { 'metadata.manifest.organization.name': searchRegex },
+          { 'metadata.manifest.organization.mission': searchRegex },
+          { 'metadata.manifest.coreConcepts.term': searchRegex },
+          { 'metadata.manifest.applications.name': searchRegex },
+          { 'metadata.manifest.people.name': searchRegex },
+          { 'metadata.domain': searchRegex }
+        ]
+      })
+      .sort({ _modified: -1 })
+      .limit(limit)
+      .toArray();
+
+    results.results = entities.map(e => this.formatResult(e));
+    results.meta.total = entities.length;
     return results;
   }
 
   /**
-   * Get address details from chain
+   * Format an entity into a search result
    */
-  async getAddressDetails(address, chain) {
-    const connector = this.ingestion?.connectors[chain];
-    if (!connector) throw new Error(`Chain ${chain} not configured`);
+  formatResult(entity) {
+    const manifest = entity.metadata?.manifest;
+    const org = manifest?.organization || {};
+    const sig = entity.metadata?.verification || entity.metadata?.signature || {};
+    const isDiscovery = entity.type === 'AIDiscovery';
 
-    const code = await connector.provider.getCode(address);
-    const isContract = code && code !== '0x';
+    const result = {
+      // Identity
+      domain: isDiscovery ? entity.address : (entity.metadata?.domain || null),
+      name: org.name || entity.address,
+      type: entity.type,
+      chain: entity.chain,
 
-    if (!isContract) {
-      // It's a wallet
-      const balance = await connector.provider.getBalance(address);
-      const txCount = await connector.provider.getTransactionCount(address);
+      // Authored content
+      mission: org.mission || org.description || null,
+      tagline: org.tagline || null,
+      sector: org.sector || null,
 
+      // What's available
+      concepts: (manifest?.coreConcepts || []).map(c => c.term || c),
+      applications: (manifest?.applications || []).map(a => ({
+        name: a.name,
+        description: a.description
+      })),
+      people: (manifest?.people || []).map(p => ({
+        name: p.name,
+        role: p.role
+      })),
+      capabilities: manifest?.capabilities || null,
+
+      // Trust
+      signature: {
+        signed: sig.signed || sig.hashValid || false,
+        verified: (sig.hashValid && sig.digitalNameMatch) || false,
+        digitalName: sig.digitalName || manifest?._signature?.digitalName || org.digitalName || null,
+        method: sig.method || manifest?._signature?.method || null
+      },
+
+      // Metadata
+      discoveryMethod: entity.metadata?.discoveryMethod || null,
+      lastChecked: entity._modified || entity._created
+    };
+
+    return result;
+  }
+
+  /**
+   * Get full entity details
+   */
+  async getEntity(id) {
+    const entity = await this.db.collection('entities').findOne({
+      address: new RegExp(`^${id}$`, 'i')
+    });
+    if (!entity) return null;
+    return this.formatResult(entity);
+  }
+
+  /**
+   * Index statistics
+   */
+  async getStats() {
+    const [domainCount, signedCount, verifiedCount, totalEntities, conceptCount] = await Promise.all([
+      this.db.collection('entities').countDocuments({ type: 'AIDiscovery' }),
+      this.db.collection('entities').countDocuments({
+        type: 'AIDiscovery',
+        $or: [
+          { 'metadata.verification.signed': true },
+          { 'metadata.verification.hashValid': true }
+        ]
+      }),
+      this.db.collection('entities').countDocuments({
+        type: 'AIDiscovery',
+        'metadata.verification.digitalNameMatch': true
+      }),
+      this.db.collection('entities').estimatedDocumentCount(),
+      this.db.collection('entities').aggregate([
+        { $match: { type: 'AIDiscovery' } },
+        { $project: { count: { $size: { $ifNull: ['$metadata.manifest.coreConcepts', []] } } } },
+        { $group: { _id: null, total: { $sum: '$count' } } }
+      ]).toArray().then(r => r[0]?.total || 0)
+    ]);
+
+    return {
+      domains: domainCount,
+      signed: signedCount,
+      verified: verifiedCount,
+      totalEntities,
+      concepts: conceptCount,
+      crawling: this.ingestion?.domainDiscovery?.isRunning || false
+    };
+  }
+
+  /**
+   * Submit a domain for discovery
+   */
+  async submitDomain(domain) {
+    if (!this.ingestion?.domainDiscovery) {
+      return { status: 'error', message: 'Discovery not available' };
+    }
+
+    // Check if already indexed
+    const existing = await this.db.collection('entities').findOne({
+      address: domain, type: 'AIDiscovery'
+    });
+
+    if (existing) {
       return {
-        address,
-        chain,
-        type: 'wallet',
-        balance: balance.toString(),
-        transactionCount: txCount,
-        isContract: false
+        status: 'already_indexed',
+        domain,
+        result: this.formatResult(existing)
       };
     }
 
-    // It's a contract - try to read epistery base attributes
-    const details = {
-      address,
-      chain,
-      type: 'contract',
-      isContract: true,
-      metadata: {}
+    // Trigger discovery
+    this.ingestion.domainDiscovery.checkDomain(domain).catch(console.error);
+    return {
+      status: 'discovering',
+      domain,
+      message: `Checking ${domain} for /.well-known/ai manifest...`
     };
-
-    // Try standard epistery contract calls
-    const abi = [
-      'function owner() view returns (address)',
-      'function sponsor() view returns (address)',
-      'function domain() view returns (string)',
-      'function VERSION() view returns (string)'
-    ];
-
-    const contract = connector.getContract(address, abi);
-
-    try { details.metadata.owner = await contract.owner(); } catch (e) {}
-    try { details.metadata.sponsor = await contract.sponsor(); } catch (e) {}
-    try { details.metadata.domain = await contract.domain(); } catch (e) {}
-    try { details.metadata.version = await contract.VERSION(); } catch (e) {}
-
-    return details;
-  }
-
-  /**
-   * Get transaction details from chain
-   */
-  async getTransactionDetails(hash, chain) {
-    const connector = this.ingestion?.connectors[chain];
-    if (!connector) throw new Error(`Chain ${chain} not configured`);
-
-    return await connector.getTransactionDetails(hash);
-  }
-
-  /**
-   * Get events for an address - hybrid approach
-   * 1. Check MongoDB cache for known event range
-   * 2. If cached, return from cache
-   * 3. If not cached or range specified, fetch from chain
-   */
-  async getAddressEvents(address, chain, fromBlock, toBlock, limit) {
-    const addressRegex = new RegExp(`^${address}$`, 'i');
-
-    // Check cache for block range hint only (don't return cached events due to duplication issues)
-    const cachedEvents = await this.db.collection('events')
-      .find({ entityId: addressRegex })
-      .sort({ blockNumber: 1 })
-      .limit(1)
-      .toArray();
-
-    // Check entity for creation block
-    const entity = await this.db.collection('entities').findOne({ address: addressRegex });
-
-    // Otherwise fetch from chain
-    const connector = this.ingestion?.connectors[chain];
-    if (!connector) throw new Error(`Chain ${chain} not configured`);
-
-    const currentBlock = await connector.getCurrentBlock();
-
-    // Determine block range
-    let from, to;
-
-    if (fromBlock !== undefined) {
-      from = fromBlock;
-    } else if (cachedEvents.length > 0) {
-      // Start from oldest cached event
-      const oldestEvent = cachedEvents[cachedEvents.length - 1];
-      from = oldestEvent.blockNumber || 0;
-    } else if (entity?._created) {
-      // Entity exists, search from a reasonable time before creation (500k blocks)
-      from = Math.max(0, currentBlock - 500000);
-    } else {
-      // No cache, search recent blocks (last 200000)
-      from = Math.max(0, currentBlock - 200000);
-    }
-
-    to = toBlock === 'latest' ? currentBlock : parseInt(toBlock);
-
-    console.log(`[search] Fetching events for ${address} from block ${from} to ${to}`);
-
-    // Get all logs for this address
-    const logs = await connector.provider.getLogs({
-      address,
-      fromBlock: from,
-      toBlock: to
-    });
-
-    // Parse logs into events using combined ABI for all epistery contract types
-    const abi = [
-      // Agent events
-      'event ACLModified(address indexed owner, string listName, address indexed addr, string action, uint256 timestamp)',
-      'event AttributeSet(address indexed owner, string key, bool isPrivate, uint256 timestamp)',
-      'event AttributeDeleted(address indexed owner, string key, bool isPrivate, uint256 timestamp)',
-      'event OwnershipTransferred(address indexed previousOwner, address indexed newOwner, uint256 timestamp)',
-      // OpenZeppelin standard events
-      'event OwnershipTransferred(address indexed previousOwner, address indexed newOwner)',
-      'event RoleGranted(bytes32 indexed role, address indexed account, address indexed sender)',
-      'event RoleRevoked(bytes32 indexed role, address indexed account, address indexed sender)',
-      // CampaignWallet v2 events
-      'event BatchSubmitted(address indexed publisher, string ipfsCID, uint256 payout, bytes32 lastHash)',
-      'event Withdrawn(address indexed publisher, uint256 amount)',
-      'event PromotionAdded(string promotionId, string creative)',
-      'event PromotionUpdated(uint256 indexed index, bool active)',
-      'event CampaignPaused(address indexed by)',
-      'event CampaignUnpaused(address indexed by)',
-      'event BudgetAdded(address indexed from, uint256 amount)'
-    ];
-
-    const iface = new (await import('ethers')).ethers.Interface(abi);
-    const parsedEvents = [];
-
-    for (const log of logs) {
-      try {
-        const parsed = iface.parseLog(log);
-
-        // Determine event category
-        let eventType = 'unknown';
-        const eventName = parsed.name;
-
-        if (['ACLModified', 'AttributeSet', 'AttributeDeleted'].includes(eventName)) {
-          eventType = `agent.${eventName}`;
-        } else if (eventName === 'OwnershipTransferred') {
-          // Detect if this is Agent or OpenZeppelin version by checking arg names
-          if (parsed.fragment.inputs.find(i => i.name === 'timestamp')) {
-            eventType = 'agent.OwnershipTransferred';
-          } else {
-            eventType = 'system.OwnershipTransferred';
-          }
-        } else if (['RoleGranted', 'RoleRevoked'].includes(eventName)) {
-          eventType = `system.${eventName}`;
-        } else if (['BatchSubmitted', 'Withdrawn', 'PromotionAdded', 'PromotionUpdated',
-                    'CampaignPaused', 'CampaignUnpaused', 'BudgetAdded'].includes(eventName)) {
-          eventType = `campaign.${eventName}`;
-        }
-
-        parsedEvents.push({
-          type: eventType,
-          blockNumber: log.blockNumber,
-          transactionHash: log.transactionHash,
-          address: log.address,
-          ...Object.fromEntries(
-            parsed.args.toArray().map((val, idx) => [
-              parsed.fragment.inputs[idx].name,
-              typeof val === 'bigint' ? Number(val) : val
-            ])
-          )
-        });
-      } catch (e) {
-        // Not a recognized event, include raw log
-        parsedEvents.push({
-          type: 'unknown',
-          blockNumber: log.blockNumber,
-          transactionHash: log.transactionHash,
-          address: log.address,
-          topics: log.topics,
-          data: log.data
-        });
-      }
-    }
-
-    // Limit results
-    return parsedEvents.slice(0, limit);
-  }
-
-  /**
-   * Update search index in MongoDB (background)
-   */
-  async updateIndex(address, chain, type) {
-    try {
-      await this.db.collection('entities').updateOne(
-        { address: new RegExp(`^${address}$`, 'i') },
-        {
-          $set: {
-            address,
-            chain,
-            type,
-            _modified: new Date()
-          },
-          $setOnInsert: {
-            _created: new Date()
-          }
-        },
-        { upsert: true }
-      );
-    } catch (error) {
-      console.error('[search] Failed to update index:', error.message);
-    }
   }
 }
