@@ -35,11 +35,11 @@ async function resolveMongoHost(config) {
   // 1. Explicit config wins
   if (config.mongoHost) return config.mongoHost;
 
-  // 2. OCI Vault — metric-im cluster
+  // 2. OCI Vault — metric-im cluster. METRIC profile reads metric-secrets bundle.
   const profile = process.env.PROFILE || 'PROD';
   try {
     const { secrets: ociSecrets, ConfigFileAuthenticationDetailsProvider } = await import('oci-sdk');
-    const ociProfile = profile === 'DEV' ? 'METRIC' : 'DEFAULT';
+    const ociProfile = process.env.OCI_PROFILE || 'METRIC';
     const provider = new ConfigFileAuthenticationDetailsProvider(
       process.env.OCI_CONFIG_PATH || '~/.oci/config',
       ociProfile
