@@ -24,8 +24,46 @@ const DB_NAME = 'epistery-scan';
  * signed data via the AI Discovery Standard (/.well-known/ai). Provides
  * knowledge search across what organizations have published and signed.
  *
- * Runs as an epistery-host agent. Connects to localhost MongoDB independently.
+ * Runs as an epistery-host agent.
+ *
+ * MongoDB connection priority:
+ *   1. config.mongoHost (explicit via epistery.json config)
+ *   2. OCI Vault — metric-im shared cluster (10.0.0.112 PROD / 129.159.123.39 DEV)
+ *   3. localhost MongoDB
  */
+async function resolveMongoHost(config) {
+  // 1. Explicit config wins
+  if (config.mongoHost) return config.mongoHost;
+
+  // 2. OCI Vault — metric-im cluster
+  const profile = process.env.PROFILE || 'PROD';
+  try {
+    const { secrets: ociSecrets, ConfigFileAuthenticationDetailsProvider } = await import('oci-sdk');
+    const ociProfile = profile === 'DEV' ? 'METRIC' : 'DEFAULT';
+    const provider = new ConfigFileAuthenticationDetailsProvider(
+      process.env.OCI_CONFIG_PATH || '~/.oci/config',
+      ociProfile
+    );
+    const client = new ociSecrets.SecretsClient({ authenticationDetailsProvider: provider });
+    const response = await client.getSecretBundleByName({
+      secretName: process.env.OCI_SECRET_NAME,
+      vaultId: process.env.OCI_VAULT_NAME
+    });
+    const { content } = response.secretBundle.secretBundleContent;
+    const vault = JSON.parse(Buffer.from(content, 'base64').toString());
+
+    if (vault.MONGO_PASS_METRIC) {
+      const host = profile === 'DEV' ? '129.159.123.39' : '10.0.0.112';
+      return `mongodb://metric:${vault.MONGO_PASS_METRIC}@${host}:27017/${DB_NAME}?authSource=admin&directConnection=true`;
+    }
+  } catch (e) {
+    console.warn(`[epistery-scan] OCI Vault unavailable: ${e.message}`);
+  }
+
+  // 3. Localhost fallback
+  return `mongodb://localhost:27017/${DB_NAME}`;
+}
+
 export default class EpisteryScan {
   constructor(config = {}) {
     this.config = config;
@@ -36,11 +74,11 @@ export default class EpisteryScan {
   }
 
   async attach(router) {
-    // Connect to MongoDB — localhost, independent
-    const mongoHost = `mongodb://localhost:27017/${DB_NAME}`;
-    console.log(`[epistery-scan] Connecting to ${mongoHost}...`);
+    const mongoHost = await resolveMongoHost(this.config);
+    const safeMongo = mongoHost.replace(/\/\/[^@]+@/, '//<credentials>@');
+    console.log(`[epistery-scan] Connecting to ${safeMongo}...`);
     const client = await mongodb.MongoClient.connect(mongoHost);
-    this.db = client.db();
+    this.db = client.db(DB_NAME);
     console.log(`[epistery-scan] Connected to MongoDB`);
 
     // Connector for handler pattern
