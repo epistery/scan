@@ -14,12 +14,31 @@ export default class ChainConnector {
   }
 
   /**
-   * Connect to the blockchain
+   * Connect to the blockchain.
+   *
+   * Uses staticNetwork to prevent ethers v6 from issuing ENS resolver(bytes32)
+   * lookups on every call — those lookups hammer the RPC (and your Infura
+   * quota) and fail on chains without ENS (e.g. Polygon).
    */
   async connect() {
-    this.provider = new ethers.JsonRpcProvider(this.rpcUrl);
-    const network = await this.provider.getNetwork();
-    console.log(`[connector] Connected to ${this.chain} (chainId: ${network.chainId})`);
+    const chainIdByName = {
+      'ethereum': 1,
+      'polygon': 137,
+      'polygon-amoy': 80002,
+      'sepolia': 11155111
+    };
+    const chainId = chainIdByName[this.chain];
+
+    if (chainId) {
+      const network = ethers.Network.from({ name: this.chain, chainId });
+      this.provider = new ethers.JsonRpcProvider(this.rpcUrl, network, { staticNetwork: network });
+      console.log(`[connector] Connected to ${this.chain} (chainId: ${chainId})`);
+    } else {
+      // Unknown chain — fall back to auto-detect (will issue a couple of calls)
+      this.provider = new ethers.JsonRpcProvider(this.rpcUrl);
+      const network = await this.provider.getNetwork();
+      console.log(`[connector] Connected to ${this.chain} (chainId: ${network.chainId})`);
+    }
     return this;
   }
 
@@ -45,9 +64,9 @@ export default class ChainConnector {
     const contract = new ethers.Contract(address, ['event ' + eventFilter], this.provider);
     const filter = contract.filters[eventFilter.split('(')[0]]();
 
-    // Use very small chunk size for polygon due to Infura's strict limits
-    // Polygon seems to have undocumented strict limits, use 1 block at a time
-    const chunkSize = this.chain === 'polygon' ? 1 : 2000;
+    // Infura supports up to 10,000 blocks per eth_getLogs call on Polygon.
+    // Use 2,000 — safe across providers, 2,000x fewer calls than the old value.
+    const chunkSize = 2000;
     const from = fromBlock || 0;
     const to = toBlock || await this.getCurrentBlock();
 
@@ -60,30 +79,31 @@ export default class ChainConnector {
       try {
         const events = await contract.queryFilter(filter, start, end);
         allEvents.push(...events);
-        consecutiveErrors = 0; // Reset error counter on success
+        consecutiveErrors = 0;
 
         if (events.length > 0) {
           console.log(`[connector:${this.chain}] Found ${events.length} events in blocks ${start}-${end}`);
         }
 
-        // Add delay between chunk requests (slower for polygon)
         if (start + chunkSize <= to) {
-          const delay = this.chain === 'polygon' ? 500 : 300;
-          await new Promise(resolve => setTimeout(resolve, delay));
+          await new Promise(resolve => setTimeout(resolve, 200));
         }
       } catch (error) {
+        // BAD_DATA with value "0x" is the provider saying "no logs here" — not
+        // a real error. Don't log, don't retry, don't count against the budget.
+        if (error.code === 'BAD_DATA') {
+          continue;
+        }
+
         console.error(`[connector:${this.chain}] Error querying blocks ${start}-${end}:`, error.message);
         consecutiveErrors++;
 
-        // If too many consecutive errors, give up on this event type
         if (consecutiveErrors >= 5) {
-          console.error(`[connector:${this.chain}] Too many consecutive errors, skipping remaining blocks for this event`);
+          console.error(`[connector:${this.chain}] Too many consecutive errors, aborting event scan`);
           break;
         }
 
-        // Exponential backoff based on error count
         const backoff = Math.min(10000, 1000 * Math.pow(2, consecutiveErrors - 1));
-        console.log(`[connector:${this.chain}] Backing off, waiting ${backoff}ms...`);
         await new Promise(resolve => setTimeout(resolve, backoff));
       }
     }

@@ -86,23 +86,27 @@ export default class Database {
   }
 
   /**
-   * Save or update an entity
+   * Save or update an entity.
+   *
+   * Uses address (unique indexed) as the lookup key. Do NOT set `_id` — Mongo
+   * forbids changing an existing document's _id, which previously caused
+   * monitors to fail every cycle and re-hit the RPC.
    */
   async saveEntity(entity) {
     const now = new Date();
+    const addressRegex = new RegExp(`^${entity.address}$`, 'i');
+    const existing = await this.entities.findOne({ address: addressRegex });
+
     const doc = {
       ...entity,
-      _modified: now,
-      _id: entity.address
+      _created: existing?._created || now,
+      _modified: now
     };
+    // Strip _id — replaceOne preserves the existing _id on update, and on
+    // insert Mongo generates one. Setting it ourselves fights both paths.
+    delete doc._id;
 
-    if (!doc._created) {
-      doc._created = now;
-    }
-
-    // Case-insensitive query to find existing entity
-    const addressRegex = new RegExp(`^${entity.address}$`, 'i');
-    const result = await this.entities.replaceOne(
+    await this.entities.replaceOne(
       { address: addressRegex },
       doc,
       { upsert: true }
