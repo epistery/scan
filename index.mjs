@@ -195,3 +195,171 @@ export default class EpisteryScan {
     console.log(`[epistery-scan] Agent attached — search the signed web`);
   }
 }
+
+// ---- Standalone bootstrap ----
+// When this file is executed directly (`node index.mjs`, i.e. the systemd unit
+// running `npm start`), boot a full HTTP/HTTPS server. When imported as an
+// epistery-host agent, the class export above is used instead and this block
+// does not run.
+if (import.meta.url === (await import('url')).pathToFileURL(process.argv[1]).href) {
+  const [
+    http,
+    https,
+    { default: cookieParser },
+    { default: cors },
+    { default: morgan },
+    { readFileSync },
+    { Epistery },
+    { Certify }
+  ] = await Promise.all([
+    import('http'),
+    import('https'),
+    import('cookie-parser'),
+    import('cors'),
+    import('morgan'),
+    import('fs'),
+    import('epistery'),
+    import('@metric-im/administrate')
+  ]);
+
+  const httpPort = process.env.PORT || 80;
+  const httpsPort = process.env.PORTSSL || 443;
+
+  let secrets = null;
+  try {
+    secrets = JSON.parse(readFileSync(path.join(__dirname, 'secrets.json'), 'utf8'));
+  } catch (err) {
+    console.warn('[scan] No secrets.json found, using config or defaults');
+  }
+
+  const app = express();
+  app.use(morgan('dev'));
+  app.use(cors());
+  app.use(express.json());
+  app.use(express.urlencoded({ extended: true }));
+  app.use(cookieParser());
+
+  // Epistery middleware — every visitor gets a device wallet
+  const epistery = await Epistery.connect();
+  await epistery.attach(app);
+  app.locals.epistery = epistery;
+
+  // Robots.txt — steer bots to /api and /.well-known/ai
+  app.get('/robots.txt', (req, res) => {
+    res.setHeader('Content-Type', 'text/plain');
+    res.send([
+      'User-agent: *',
+      'Allow: /.well-known/ai',
+      'Allow: /api/',
+      'Disallow: /',
+      '',
+      'User-agent: GPTBot',
+      'Allow: /.well-known/ai',
+      'Allow: /api/',
+      'Disallow: /',
+      '',
+      'User-agent: ClaudeBot',
+      'Allow: /.well-known/ai',
+      'Allow: /api/',
+      'Disallow: /'
+    ].join('\n'));
+  });
+
+  const scan = new EpisteryScan();
+  await scan.attach(app);
+
+  // AI Discovery manifest — describes scan itself to AI agents
+  app.get('/.well-known/ai', async (req, res) => {
+    try {
+      const [domainCount, monitorCount, eventCount] = await Promise.all([
+        scan.db.collection('entities').countDocuments({ type: 'AIDiscovery' }),
+        scan.db.collection('monitors').countDocuments({ active: true }),
+        scan.db.collection('events').estimatedDocumentCount()
+      ]);
+
+      res.setHeader('Content-Type', 'application/json');
+      res.json({
+        specVersion: '1.2.0',
+        standard: 'ai-discovery',
+        generated: new Date().toISOString(),
+        organization: {
+          name: 'Epistery Scan',
+          domain: req.hostname,
+          description: 'Cross-chain blockchain explorer and AI discovery indexer for the Epistery ecosystem'
+        },
+        capabilities: {
+          knowledge: false,
+          feed: false,
+          query: {
+            available: true,
+            url: '/api/search',
+            auth: 'none',
+            description: 'Search contracts, transactions, and AI discovery domains'
+          }
+        },
+        apis: {
+          search: { url: '/api/search?q={query}', method: 'GET', description: 'Search by address, tx hash, or domain.' },
+          discovery: { url: '/api/discovery', methods: ['GET', 'POST'], description: 'GET lists indexed domains. POST {domain} to submit a new domain for indexing.' },
+          discoveryDetail: { url: '/api/discovery/{domain}', method: 'GET', description: 'Full manifest and crawl state for a specific domain.' },
+          events: { url: '/api/events', method: 'GET', description: 'Query blockchain events by entityId, type, chain.' },
+          monitor: { url: '/api/monitor', methods: ['GET', 'POST'], description: 'List or add monitored blockchain contracts.' }
+        },
+        stats: {
+          indexedDomains: domainCount,
+          monitoredContracts: monitorCount,
+          totalEvents: eventCount
+        },
+        coreConcepts: [
+          { term: 'AI Discovery', definition: 'Web standard where domains publish /.well-known/ai manifests for AI agent consumption' },
+          { term: 'DomainAgent', definition: 'Blockchain contract that links a domain name to an on-chain identity' },
+          { term: 'IdentityContract', definition: 'Multi-sig identity binding using rivets and thresholds' },
+          { term: 'CampaignWallet', definition: 'Smart contract managing ad campaign budgets and publisher payouts' }
+        ],
+        instructions: {
+          forAI: 'You are interacting with Epistery Scan, a blockchain and AI discovery indexer. Use the /api/search endpoint to find contracts and domains. Use /api/discovery to list or submit domains with /.well-known/ai manifests. All responses are JSON.',
+          rateLimit: 'Be respectful. 100 requests/minute for API. Do not scrape the HTML page — use the APIs.'
+        },
+        contact: { website: `https://${req.hostname}` }
+      });
+    } catch (err) {
+      console.error('[scan] /.well-known/ai error:', err.message);
+      res.status(500).json({ error: 'Failed to generate manifest' });
+    }
+  });
+
+  // Bring up listeners. With secrets.contactEmail, provision HTTPS via administrate;
+  // otherwise fall back to plain HTTP so dev clones without credentials can still run.
+  const contactEmail = secrets?.contactEmail || process.env.CONTACT_EMAIL;
+  const servers = [];
+
+  if (contactEmail) {
+    const certify = await Certify.attach(app, { contactEmail });
+    const httpsServer = https.createServer({ ...certify.SNI }, app);
+    httpsServer.on('error', console.error);
+    httpsServer.on('listening', () => console.log(`[scan] HTTPS server running on port ${httpsServer.address().port}`));
+    httpsServer.listen(httpsPort);
+    servers.push(httpsServer);
+
+    const httpServer = http.createServer(app);
+    httpServer.on('error', console.error);
+    httpServer.on('listening', () => console.log(`[scan] HTTP server running on port ${httpServer.address().port}`));
+    httpServer.listen(httpPort);
+    servers.push(httpServer);
+  } else {
+    const devPort = process.env.PORT || 3000;
+    const httpServer = http.createServer(app);
+    httpServer.on('error', console.error);
+    httpServer.on('listening', () => console.log(`[scan] HTTP server on port ${httpServer.address().port} (no HTTPS — set contactEmail in secrets.json to enable)`));
+    httpServer.listen(devPort);
+    servers.push(httpServer);
+  }
+
+  const shutdown = async (signal) => {
+    console.log(`[scan] ${signal} received, shutting down...`);
+    scan.ingestion?.stop();
+    await Promise.all(servers.map(s => new Promise(resolve => s.close(resolve))));
+    process.exit(0);
+  };
+  process.on('SIGINT', () => shutdown('SIGINT'));
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
+}
