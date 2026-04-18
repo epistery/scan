@@ -265,7 +265,22 @@ if (import.meta.url === (await import('url')).pathToFileURL(process.argv[1]).hre
     ].join('\n'));
   });
 
-  const scan = new EpisteryScan();
+  // Build Mongo URL from secrets.json if present — matches the original
+  // standalone's `getMongoHost()` contract. Falls through to attach()'s
+  // OCI Vault / localhost chain when no secrets.mongo block is configured.
+  let mongoHost;
+  if (secrets?.mongo) {
+    const profile = process.env.PROFILE || 'PROD';
+    const host = profile === 'DEV' ? (secrets.mongo.host_dev || secrets.mongo.host) : secrets.mongo.host;
+    const port = secrets.mongo.port || 27017;
+    const database = secrets.mongo.database || 'epistery-scan';
+    const { username, password } = secrets.mongo;
+    mongoHost = username && password
+      ? `mongodb://${username}:${password}@${host}:${port}/${database}?authSource=admin&directConnection=true`
+      : `mongodb://${host}:${port}/${database}`;
+  }
+
+  const scan = new EpisteryScan(mongoHost ? { mongoHost } : {});
   await scan.attach(app);
 
   // AI Discovery manifest — describes scan itself to AI agents
