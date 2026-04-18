@@ -121,7 +121,15 @@ export default class EpisteryScan {
 
     this.ingestion = new IngestionManager(this.database, ingestionConfig);
     await this.ingestion.initialize();
-    this.ingestion.start();
+
+    const autostart = this.config.ingestion?.autostart
+      ?? episteryConfig.data.ingestion?.autostart
+      ?? false;
+    if (autostart) {
+      this.ingestion.start();
+    } else {
+      console.log(`[epistery-scan] Ingestion autostart disabled — no automatic RPC polling. Set ingestion.autostart=true in ~/.epistery/config to enable.`);
+    }
 
     // Static files
     router.use('/static', express.static(path.join(__dirname, 'public')));

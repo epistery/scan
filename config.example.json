@@ -14,7 +14,7 @@
     }
   },
   "ingestion": {
-    "autostart": true,
-    "pollInterval": 60000
+    "autostart": false,
+    "pollInterval": 300000
   }
 }

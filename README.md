@@ -229,8 +229,13 @@ pollInterval = 300000
 discoveryPollInterval = 86400000
 
 [ingestion]
-autostart=true
+autostart=false
 ```
+
+`ingestion.autostart` defaults to `false` so a fresh clone does not automatically
+poll any RPC endpoint. Flip it to `true` on the host that should actually index
+the chain. When disabled, the service still accepts manual ingestion calls via
+the `/api/monitor` and `/api/fetch` endpoints.
 
 ### 4. Run
 ```bash
