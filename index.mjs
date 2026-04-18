@@ -342,12 +342,23 @@ if (import.meta.url === (await import('url')).pathToFileURL(process.argv[1]).hre
     }
   });
 
-  // Bring up listeners. With secrets.contactEmail, provision HTTPS via administrate;
-  // otherwise fall back to plain HTTP so dev clones without credentials can still run.
+  // Bring up listeners. Three modes:
+  //   - UPSTREAM=1 (env): plain HTTP on $PORT only. TLS is terminated upstream
+  //     (harness/MultiSite, nginx, etc.) — do not provision certs here.
+  //   - contactEmail present: provision HTTPS via administrate on :443, HTTP on :80.
+  //   - Neither: plain HTTP on $PORT || 3000 for dev clones without credentials.
+  const upstream = process.env.UPSTREAM === '1' || process.env.UPSTREAM === 'true';
   const contactEmail = secrets?.contactEmail || process.env.CONTACT_EMAIL;
   const servers = [];
 
-  if (contactEmail) {
+  if (upstream) {
+    const upstreamPort = process.env.PORT || 3000;
+    const httpServer = http.createServer(app);
+    httpServer.on('error', console.error);
+    httpServer.on('listening', () => console.log(`[scan] HTTP server on port ${httpServer.address().port} (UPSTREAM mode — TLS terminated by harness)`));
+    httpServer.listen(upstreamPort);
+    servers.push(httpServer);
+  } else if (contactEmail) {
     const certify = await Certify.attach(app, { contactEmail });
     const httpsServer = https.createServer({ ...certify.SNI }, app);
     httpsServer.on('error', console.error);
