@@ -13,9 +13,10 @@ import express from 'express';
  * For addresses: Chain lookup (secondary, for trust verification)
  */
 export default class SearchHandler {
-  constructor(connector) {
+  constructor(connector, harness) {
     this.connector = connector;
     this.db = connector.db;
+    this.harness = harness || null;
     this.ingestion = null;
   }
 
@@ -102,15 +103,20 @@ export default class SearchHandler {
   }
 
   /**
-   * Search — knowledge first, chain second
+   * Search — knowledge first, chain second, federated across harness children
    */
   async search(query, limit = 20) {
     const q = query.trim();
     const results = {
       query: q,
       results: [],
-      meta: { total: 0, source: 'signed-web' }
+      meta: { total: 0, sources: ['signed-web'] }
     };
+
+    // Fire federated query in parallel (non-blocking until we need it)
+    const childPromise = this.harness
+      ? this.harness.query(`/api/search?q=${encodeURIComponent(q)}&limit=${limit}`)
+      : Promise.resolve([]);
 
     // Blockchain address — direct chain lookup
     if (/^0x[a-f0-9]{40}$/i.test(q)) {
@@ -157,34 +163,101 @@ export default class SearchHandler {
       if (textResults.length > 0) {
         results.results = textResults.map(e => this.formatResult(e));
         results.meta.total = textResults.length;
-        return results;
       }
     } catch (err) {
       // Text index may not exist yet on empty DB — fall through to regex
       console.warn('[search] Text search failed, falling back to regex:', err.message);
     }
 
-    // Fallback — regex search across key fields
-    const searchRegex = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
-    const entities = await this.db.collection('entities')
-      .find({
-        $or: [
-          { address: searchRegex },
-          { 'metadata.manifest.organization.name': searchRegex },
-          { 'metadata.manifest.organization.mission': searchRegex },
-          { 'metadata.manifest.coreConcepts.term': searchRegex },
-          { 'metadata.manifest.applications.name': searchRegex },
-          { 'metadata.manifest.people.name': searchRegex },
-          { 'metadata.domain': searchRegex }
-        ]
-      })
-      .sort({ _modified: -1 })
-      .limit(limit)
-      .toArray();
+    // Fallback — regex search if text search yielded nothing
+    if (results.results.length === 0) {
+      const searchRegex = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+      const entities = await this.db.collection('entities')
+        .find({
+          $or: [
+            { address: searchRegex },
+            { 'metadata.manifest.organization.name': searchRegex },
+            { 'metadata.manifest.organization.mission': searchRegex },
+            { 'metadata.manifest.coreConcepts.term': searchRegex },
+            { 'metadata.manifest.applications.name': searchRegex },
+            { 'metadata.manifest.people.name': searchRegex },
+            { 'metadata.domain': searchRegex }
+          ]
+        })
+        .sort({ _modified: -1 })
+        .limit(limit)
+        .toArray();
 
-    results.results = entities.map(e => this.formatResult(e));
-    results.meta.total = entities.length;
+      results.results = entities.map(e => this.formatResult(e));
+      results.meta.total = entities.length;
+    }
+
+    // Merge federated results from harness children
+    try {
+      const childResponses = await childPromise;
+      this._mergeChildResults(results, childResponses, limit);
+    } catch (err) {
+      console.warn('[search] Federated query failed:', err.message);
+    }
+
     return results;
+  }
+
+  /**
+   * Merge child responses into the main results object
+   */
+  _mergeChildResults(results, childResponses, limit) {
+    if (!childResponses.length) return;
+
+    for (const child of childResponses) {
+      const items = child.data?.results || [];
+      if (!items.length) continue;
+
+      // Track this source
+      if (!results.meta.sources.includes(child.hostname)) {
+        results.meta.sources.push(child.hostname);
+      }
+
+      for (const item of items) {
+        if (results.results.length >= limit) break;
+        results.results.push(this._normalizeChildResult(item, child.hostname));
+      }
+    }
+
+    results.meta.total = results.results.length;
+  }
+
+  /**
+   * Normalize a child result (mcp-registry shape) into scan's result format
+   */
+  _normalizeChildResult(item, hostname) {
+    return {
+      domain: hostname,
+      name: item.title || item.name,
+      type: 'MCPService',
+      chain: null,
+
+      mission: item.description || null,
+      tagline: null,
+      sector: item.category || null,
+
+      concepts: [],
+      applications: [],
+      people: [],
+      capabilities: item.tools_count > 0 ? { tools: true } : null,
+
+      signature: { signed: false, verified: false, digitalName: null, method: null },
+
+      mcpService: {
+        tools_count: item.tools_count || 0,
+        reachable: item.reachable || false,
+        detail_url: item.detail_url || null
+      },
+
+      source: hostname,
+      discoveryMethod: 'registry',
+      lastChecked: null
+    };
   }
 
   /**
@@ -229,6 +302,7 @@ export default class SearchHandler {
       },
 
       // Metadata
+      source: 'signed-web',
       discoveryMethod: entity.metadata?.discoveryMethod || null,
       lastChecked: entity._modified || entity._created
     };

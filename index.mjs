@@ -12,6 +12,7 @@ import EventHandler from './handlers/Event.mjs';
 import FetchHandler from './handlers/Fetch.mjs';
 import DiscoveryHandler from './handlers/Discovery.mjs';
 import FeedHandler from './handlers/Feed.mjs';
+import Harness from './lib/Harness.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -135,7 +136,7 @@ export default class EpisteryScan {
     router.use('/static', express.static(path.join(__dirname, 'public')));
 
     // Create handlers
-    const searchHandler = new SearchHandler(this.connector);
+    const searchHandler = new SearchHandler(this.connector, this.harness);
     const monitorHandler = new MonitorHandler(this.connector);
     const eventHandler = new EventHandler(this.connector);
     const fetchHandler = new FetchHandler(this.connector);
@@ -239,6 +240,16 @@ if (import.meta.url === (await import('url')).pathToFileURL(process.argv[1]).hre
   app.use(express.urlencoded({ extended: true }));
   app.use(cookieParser());
 
+  // Harness — spawn child processes for hostname-routed services
+  const harnessConfig = new Config();
+  harnessConfig.setPath('/');
+  const harnessMap = harnessConfig.data.harness || {};
+  const harness = new Harness(harnessMap);
+  if (Object.keys(harnessMap).length) {
+    await harness.start();
+    app.use(harness.middleware());
+  }
+
   // Epistery middleware — every visitor gets a device wallet
   const epistery = await Epistery.connect();
   await epistery.attach(app);
@@ -281,6 +292,7 @@ if (import.meta.url === (await import('url')).pathToFileURL(process.argv[1]).hre
   }
 
   const scan = new EpisteryScan(mongoHost ? { mongoHost } : {});
+  scan.harness = harness;
   await scan.attach(app);
 
   // AI Discovery manifest — describes scan itself to AI agents
@@ -383,6 +395,7 @@ if (import.meta.url === (await import('url')).pathToFileURL(process.argv[1]).hre
   const shutdown = async (signal) => {
     console.log(`[scan] ${signal} received, shutting down...`);
     scan.ingestion?.stop();
+    await harness.shutdown();
     await Promise.all(servers.map(s => new Promise(resolve => s.close(resolve))));
     process.exit(0);
   };
