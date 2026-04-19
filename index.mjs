@@ -32,38 +32,23 @@ const DB_NAME = 'epistery-scan';
  *   2. OCI Vault — metric-im shared cluster (10.0.0.112 PROD / 129.159.123.39 DEV)
  *   3. localhost MongoDB
  */
-async function resolveMongoHost(config) {
-  // 1. Explicit config wins
+/**
+ * Resolve MongoDB connection from config.ini [mongo] section.
+ *   host, port, username, password, database
+ * Falls back to localhost when unconfigured.
+ */
+function resolveMongoHost(config) {
   if (config.mongoHost) return config.mongoHost;
 
-  // 2. OCI Vault — metric-im cluster. METRIC profile reads metric-secrets bundle.
-  //    OCI settings from ~/.epistery/config.ini [oci] section.
-  const profile = process.env.PROFILE || 'PROD';
-  const oci = config.oci || {};
-  try {
-    const { secrets: ociSecrets, ConfigFileAuthenticationDetailsProvider } = await import('oci-sdk');
-    const provider = new ConfigFileAuthenticationDetailsProvider(
-      oci.configPath || '~/.oci/config',
-      oci.profile || 'METRIC'
-    );
-    const client = new ociSecrets.SecretsClient({ authenticationDetailsProvider: provider });
-    const response = await client.getSecretBundleByName({
-      secretName: oci.secretName,
-      vaultId: oci.vaultId
-    });
-    const { content } = response.secretBundle.secretBundleContent;
-    const vault = JSON.parse(Buffer.from(content, 'base64').toString());
+  const mongo = config.mongo || {};
+  const host = mongo.host || 'localhost';
+  const port = mongo.port || 27017;
+  const database = mongo.database || DB_NAME;
 
-    if (vault.MONGO_PASS_METRIC) {
-      const host = profile === 'DEV' ? '129.159.123.39' : '10.0.0.112';
-      return `mongodb://metric:${vault.MONGO_PASS_METRIC}@${host}:27017/${DB_NAME}?authSource=admin&directConnection=true`;
-    }
-  } catch (e) {
-    console.warn(`[epistery-scan] OCI Vault unavailable: ${e.message}`);
+  if (mongo.username && mongo.password) {
+    return `mongodb://${mongo.username}:${mongo.password}@${host}:${port}/${database}?authSource=admin&directConnection=true`;
   }
-
-  // 3. Localhost fallback
-  return `mongodb://localhost:27017/${DB_NAME}`;
+  return `mongodb://${host}:${port}/${database}`;
 }
 
 export default class EpisteryScan {
@@ -80,9 +65,9 @@ export default class EpisteryScan {
     const episteryConfig = new Config();
     await episteryConfig.setPath('/');
 
-    // Merge OCI section from epistery config into resolve options
-    const resolveConfig = { ...this.config, oci: this.config.oci || episteryConfig.data.oci };
-    const mongoHost = await resolveMongoHost(resolveConfig);
+    // Mongo config from epistery config.ini [mongo] section
+    const resolveConfig = { ...this.config, mongo: this.config.mongo || episteryConfig.data.mongo };
+    const mongoHost = resolveMongoHost(resolveConfig);
     const safeMongo = mongoHost.replace(/\/\/[^@]+@/, '//<credentials>@');
     console.log(`[epistery-scan] Connecting to ${safeMongo}...`);
     const client = await mongodb.MongoClient.connect(mongoHost);
