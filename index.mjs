@@ -37,18 +37,19 @@ async function resolveMongoHost(config) {
   if (config.mongoHost) return config.mongoHost;
 
   // 2. OCI Vault — metric-im cluster. METRIC profile reads metric-secrets bundle.
+  //    OCI settings from ~/.epistery/config.ini [oci] section.
   const profile = process.env.PROFILE || 'PROD';
+  const oci = config.oci || {};
   try {
     const { secrets: ociSecrets, ConfigFileAuthenticationDetailsProvider } = await import('oci-sdk');
-    const ociProfile = process.env.OCI_PROFILE || 'METRIC';
     const provider = new ConfigFileAuthenticationDetailsProvider(
-      process.env.OCI_CONFIG_PATH || '~/.oci/config',
-      ociProfile
+      oci.configPath || '~/.oci/config',
+      oci.profile || 'METRIC'
     );
     const client = new ociSecrets.SecretsClient({ authenticationDetailsProvider: provider });
     const response = await client.getSecretBundleByName({
-      secretName: process.env.OCI_SECRET_NAME,
-      vaultId: process.env.OCI_VAULT_NAME
+      secretName: oci.secretName,
+      vaultId: oci.vaultId
     });
     const { content } = response.secretBundle.secretBundleContent;
     const vault = JSON.parse(Buffer.from(content, 'base64').toString());
@@ -75,7 +76,13 @@ export default class EpisteryScan {
   }
 
   async attach(router) {
-    const mongoHost = await resolveMongoHost(this.config);
+    // Load epistery config early — used for OCI, chains, ingestion
+    const episteryConfig = new Config();
+    await episteryConfig.setPath('/');
+
+    // Merge OCI section from epistery config into resolve options
+    const resolveConfig = { ...this.config, oci: this.config.oci || episteryConfig.data.oci };
+    const mongoHost = await resolveMongoHost(resolveConfig);
     const safeMongo = mongoHost.replace(/\/\/[^@]+@/, '//<credentials>@');
     console.log(`[epistery-scan] Connecting to ${safeMongo}...`);
     const client = await mongodb.MongoClient.connect(mongoHost);
@@ -91,10 +98,6 @@ export default class EpisteryScan {
     // Initialize database layer
     this.database = new Database(this.connector);
     await this.database.initialize();
-
-    // Initialize ingestion — chain config optional, domain discovery is core
-    const episteryConfig = new Config();
-    await episteryConfig.setPath('/');
 
     const ingestionConfig = {
       chains: {},
@@ -209,7 +212,6 @@ if (import.meta.url === (await import('url')).pathToFileURL(process.argv[1]).hre
     { default: cookieParser },
     { default: cors },
     { default: morgan },
-    { readFileSync },
     { Epistery },
     { Certify }
   ] = await Promise.all([
@@ -218,20 +220,12 @@ if (import.meta.url === (await import('url')).pathToFileURL(process.argv[1]).hre
     import('cookie-parser'),
     import('cors'),
     import('morgan'),
-    import('fs'),
     import('epistery'),
     import('@metric-im/administrate')
   ]);
 
   const httpPort = process.env.PORT || 80;
   const httpsPort = process.env.PORTSSL || 443;
-
-  let secrets = null;
-  try {
-    secrets = JSON.parse(readFileSync(path.join(__dirname, 'secrets.json'), 'utf8'));
-  } catch (err) {
-    console.warn('[scan] No secrets.json found, using config or defaults');
-  }
 
   const app = express();
   app.use(morgan('dev'));
@@ -276,22 +270,7 @@ if (import.meta.url === (await import('url')).pathToFileURL(process.argv[1]).hre
     ].join('\n'));
   });
 
-  // Build Mongo URL from secrets.json if present — matches the original
-  // standalone's `getMongoHost()` contract. Falls through to attach()'s
-  // OCI Vault / localhost chain when no secrets.mongo block is configured.
-  let mongoHost;
-  if (secrets?.mongo) {
-    const profile = process.env.PROFILE || 'PROD';
-    const host = profile === 'DEV' ? (secrets.mongo.host_dev || secrets.mongo.host) : secrets.mongo.host;
-    const port = secrets.mongo.port || 27017;
-    const database = secrets.mongo.database || 'epistery-scan';
-    const { username, password } = secrets.mongo;
-    mongoHost = username && password
-      ? `mongodb://${username}:${password}@${host}:${port}/${database}?authSource=admin&directConnection=true`
-      : `mongodb://${host}:${port}/${database}`;
-  }
-
-  const scan = new EpisteryScan(mongoHost ? { mongoHost } : {});
+  const scan = new EpisteryScan({});
   scan.harness = harness;
   await scan.attach(app);
 
@@ -354,23 +333,13 @@ if (import.meta.url === (await import('url')).pathToFileURL(process.argv[1]).hre
     }
   });
 
-  // Bring up listeners. Three modes:
-  //   - UPSTREAM=1 (env): plain HTTP on $PORT only. TLS is terminated upstream
-  //     (harness/MultiSite, nginx, etc.) — do not provision certs here.
-  //   - contactEmail present: provision HTTPS via administrate on :443, HTTP on :80.
-  //   - Neither: plain HTTP on $PORT || 3000 for dev clones without credentials.
-  const upstream = process.env.UPSTREAM === '1' || process.env.UPSTREAM === 'true';
-  const contactEmail = secrets?.contactEmail || process.env.CONTACT_EMAIL;
+  // Bring up listeners. Two modes:
+  //   - contactEmail present (config.ini [profile] email): HTTPS via Certify + HTTP.
+  //   - No email: plain HTTP for dev clones.
+  const contactEmail = harnessConfig.data.profile?.email;
   const servers = [];
 
-  if (upstream) {
-    const upstreamPort = process.env.PORT || 3000;
-    const httpServer = http.createServer(app);
-    httpServer.on('error', console.error);
-    httpServer.on('listening', () => console.log(`[scan] HTTP server on port ${httpServer.address().port} (UPSTREAM mode — TLS terminated by harness)`));
-    httpServer.listen(upstreamPort);
-    servers.push(httpServer);
-  } else if (contactEmail) {
+  if (contactEmail) {
     const certify = await Certify.attach(app, { contactEmail });
     const httpsServer = https.createServer({ ...certify.SNI }, app);
     httpsServer.on('error', console.error);
@@ -387,7 +356,7 @@ if (import.meta.url === (await import('url')).pathToFileURL(process.argv[1]).hre
     const devPort = process.env.PORT || 3000;
     const httpServer = http.createServer(app);
     httpServer.on('error', console.error);
-    httpServer.on('listening', () => console.log(`[scan] HTTP server on port ${httpServer.address().port} (no HTTPS — set contactEmail in secrets.json to enable)`));
+    httpServer.on('listening', () => console.log(`[scan] HTTP server on port ${httpServer.address().port} (no HTTPS — set [profile] email in config.ini to enable)`));
     httpServer.listen(devPort);
     servers.push(httpServer);
   }
