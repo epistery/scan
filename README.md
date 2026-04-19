@@ -238,12 +238,44 @@ the chain. When disabled, the service still accepts manual ingestion calls via
 the `/api/monitor` and `/api/fetch` endpoints.
 
 ### 4. Run
+
+Three modes are supported:
+
 ```bash
-npm start                  # Production (HTTP :80, HTTPS :443)
-PROFILE=DEV npm start      # Development (uses dev mongo host)
+npm start                  # Standalone. HTTPS :443 + HTTP :80 via Certify
+                           # (requires secrets.json.contactEmail)
+PROFILE=DEV npm start      # Standalone, dev mongo host
+
+UPSTREAM=1 PORT=3000 npm start
+                           # Behind a reverse-proxy / multisite harness.
+                           # HTTP-only on $PORT. No cert provisioning.
 ```
 
-SSL certificates provision automatically via `@metric-im/administrate`.
+SSL certificates provision automatically via `@metric-im/administrate` in
+standalone mode.
+
+### Running under harness (multisite)
+
+On a machine that hosts more than one site (e.g. `scan.epistery.io`
+alongside `mcp.epistery.io` and sector subdomains), let
+[`rootz/harness`](https://github.com/rootz-global/harness) own :80/:443 and
+spawn scan as a child.
+
+```bash
+# on the harness host:
+ln -s /opt/epistery-scan /opt/harness/sites/scan.epistery.io
+```
+
+Pass `UPSTREAM=1` to scan via harness's `SITE_ENV`:
+
+```bash
+SITE_ENV='{"scan.epistery.io":{"UPSTREAM":"1"}}' \
+  node /opt/harness/index.mjs
+```
+
+Scan will bind HTTP-only on the port harness assigns, skip its own
+Certify pipeline, and respond on `/health` so harness can keep the child
+alive.
 
 ## Tech Stack
 

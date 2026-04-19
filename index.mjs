@@ -12,6 +12,7 @@ import EventHandler from './handlers/Event.mjs';
 import FetchHandler from './handlers/Fetch.mjs';
 import DiscoveryHandler from './handlers/Discovery.mjs';
 import FeedHandler from './handlers/Feed.mjs';
+import Harness from './lib/Harness.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -135,7 +136,7 @@ export default class EpisteryScan {
     router.use('/static', express.static(path.join(__dirname, 'public')));
 
     // Create handlers
-    const searchHandler = new SearchHandler(this.connector);
+    const searchHandler = new SearchHandler(this.connector, this.harness);
     const monitorHandler = new MonitorHandler(this.connector);
     const eventHandler = new EventHandler(this.connector);
     const fetchHandler = new FetchHandler(this.connector);
@@ -239,6 +240,16 @@ if (import.meta.url === (await import('url')).pathToFileURL(process.argv[1]).hre
   app.use(express.urlencoded({ extended: true }));
   app.use(cookieParser());
 
+  // Harness — spawn child processes for hostname-routed services
+  const harnessConfig = new Config();
+  harnessConfig.setPath('/');
+  const harnessMap = harnessConfig.data.harness || {};
+  const harness = new Harness(harnessMap);
+  if (Object.keys(harnessMap).length) {
+    await harness.start();
+    app.use(harness.middleware());
+  }
+
   // Epistery middleware — every visitor gets a device wallet
   const epistery = await Epistery.connect();
   await epistery.attach(app);
@@ -281,6 +292,7 @@ if (import.meta.url === (await import('url')).pathToFileURL(process.argv[1]).hre
   }
 
   const scan = new EpisteryScan(mongoHost ? { mongoHost } : {});
+  scan.harness = harness;
   await scan.attach(app);
 
   // AI Discovery manifest — describes scan itself to AI agents
@@ -342,12 +354,23 @@ if (import.meta.url === (await import('url')).pathToFileURL(process.argv[1]).hre
     }
   });
 
-  // Bring up listeners. With secrets.contactEmail, provision HTTPS via administrate;
-  // otherwise fall back to plain HTTP so dev clones without credentials can still run.
+  // Bring up listeners. Three modes:
+  //   - UPSTREAM=1 (env): plain HTTP on $PORT only. TLS is terminated upstream
+  //     (harness/MultiSite, nginx, etc.) — do not provision certs here.
+  //   - contactEmail present: provision HTTPS via administrate on :443, HTTP on :80.
+  //   - Neither: plain HTTP on $PORT || 3000 for dev clones without credentials.
+  const upstream = process.env.UPSTREAM === '1' || process.env.UPSTREAM === 'true';
   const contactEmail = secrets?.contactEmail || process.env.CONTACT_EMAIL;
   const servers = [];
 
-  if (contactEmail) {
+  if (upstream) {
+    const upstreamPort = process.env.PORT || 3000;
+    const httpServer = http.createServer(app);
+    httpServer.on('error', console.error);
+    httpServer.on('listening', () => console.log(`[scan] HTTP server on port ${httpServer.address().port} (UPSTREAM mode — TLS terminated by harness)`));
+    httpServer.listen(upstreamPort);
+    servers.push(httpServer);
+  } else if (contactEmail) {
     const certify = await Certify.attach(app, { contactEmail });
     const httpsServer = https.createServer({ ...certify.SNI }, app);
     httpsServer.on('error', console.error);
@@ -372,6 +395,7 @@ if (import.meta.url === (await import('url')).pathToFileURL(process.argv[1]).hre
   const shutdown = async (signal) => {
     console.log(`[scan] ${signal} received, shutting down...`);
     scan.ingestion?.stop();
+    await harness.shutdown();
     await Promise.all(servers.map(s => new Promise(resolve => s.close(resolve))));
     process.exit(0);
   };
