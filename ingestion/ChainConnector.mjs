@@ -10,6 +10,7 @@ export default class ChainConnector {
   constructor(config) {
     this.chain = config.chain;
     this.rpcUrl = config.rpcUrl;
+    this.chainId = config.chainId || null;
     this.provider = null;
   }
 
@@ -21,24 +22,16 @@ export default class ChainConnector {
    * quota) and fail on chains without ENS (e.g. Polygon).
    */
   async connect() {
-    const chainIdByName = {
-      'ethereum': 1,
-      'polygon': 137,
-      'polygon-amoy': 80002,
-      'sepolia': 11155111
-    };
-    const chainId = chainIdByName[this.chain];
-
-    if (chainId) {
-      const network = ethers.Network.from({ name: this.chain, chainId });
+    if (this.chainId) {
+      const network = ethers.Network.from({ name: this.chain, chainId: this.chainId });
       this.provider = new ethers.JsonRpcProvider(this.rpcUrl, network, { staticNetwork: network });
-      console.log(`[connector] Connected to ${this.chain} (chainId: ${chainId})`);
     } else {
-      // Unknown chain — fall back to auto-detect (will issue a couple of calls)
+      // No chainId — fall back to auto-detect (will issue a couple of calls)
       this.provider = new ethers.JsonRpcProvider(this.rpcUrl);
       const network = await this.provider.getNetwork();
-      console.log(`[connector] Connected to ${this.chain} (chainId: ${network.chainId})`);
+      this.chainId = Number(network.chainId);
     }
+    console.log(`[connector] Connected to ${this.chain} (chainId: ${this.chainId})`);
     return this;
   }
 
@@ -215,8 +208,8 @@ export default class ChainConnector {
  * Creates connectors for different chains
  */
 export class ChainConnectorFactory {
-  static async create(chain, rpcUrl) {
-    const connector = new ChainConnector({ chain, rpcUrl });
+  static async create(chain, rpcUrl, chainId) {
+    const connector = new ChainConnector({ chain, rpcUrl, chainId });
     await connector.connect();
     return connector;
   }
@@ -231,7 +224,7 @@ export class ChainConnectorFactory {
     for (let i = 0; i < chains.length; i++) {
       const [chain, chainConfig] = chains[i];
       if (chainConfig.enabled !== false) {
-        connectors[chain] = await ChainConnectorFactory.create(chain, chainConfig.rpcUrl);
+        connectors[chain] = await ChainConnectorFactory.create(chain, chainConfig.rpcUrl, chainConfig.chainId);
 
         // Add delay between connector initializations to avoid rate limiting
         if (i < chains.length - 1) {

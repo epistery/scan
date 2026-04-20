@@ -2,7 +2,7 @@ import express from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import mongodb from 'mongodb';
-import { Config } from 'epistery';
+import { Config, configuredChains } from 'epistery';
 import Componentry from '@metric-im/componentry';
 import Database from './db/Database.mjs';
 import IngestionManager from './ingestion/IngestionManager.mjs';
@@ -22,15 +22,15 @@ const DB_NAME = 'epistery-scan';
  * Epistery Scan — Search the Signed Web
  *
  * Epistery agent that indexes websites publishing authored, cryptographically
- * signed data via the AI Discovery Standard (/.well-known/ai). Provides
+ * signed data via the AI Discovery Standard (/.well-known/ai). Includes
+ * epistery on chain contracts. Provides
  * knowledge search across what organizations have published and signed.
  *
- * Runs as an epistery-host agent.
+ * Runs as a multisite host to manage incoming 80/443 traffic natively and
+ * route appropriately
  *
- * MongoDB connection priority:
- *   1. config.mongoHost (explicit via epistery.json config)
- *   2. OCI Vault — metric-im shared cluster (10.0.0.112 PROD / 129.159.123.39 DEV)
- *   3. localhost MongoDB
+ * MongoDB connection from config.ini [mongo] section.
+ * Falls back to localhost when unconfigured.
  */
 /**
  * Resolve MongoDB connection from config.ini [mongo] section.
@@ -84,27 +84,21 @@ export default class EpisteryScan {
     this.database = new Database(this.connector);
     await this.database.initialize();
 
+    // Slug map: chainId → connector-map key (matches monitor.chain in database)
+    const CHAIN_SLUGS = { 1: 'ethereum', 137: 'polygon', 80002: 'polygon-amoy', 11155111: 'sepolia', 81: 'japanopenchain' };
+
     const ingestionConfig = {
       chains: {},
       pollInterval: episteryConfig.data.pollInterval || 300000
     };
 
-    // Chain RPC URLs from epistery config (optional — domain discovery works without them)
-    if (episteryConfig.data.chains) {
-      for (const [name, chain] of Object.entries(episteryConfig.data.chains)) {
-        if (!chain.rpcUrl) continue;
-        ingestionConfig.chains[name] = {
-          enabled: chain.enabled !== false,
-          rpcUrl: chain.rpcUrl
-        };
-      }
-    }
-
-    // Also check default.provider for Polygon
-    if (Object.keys(ingestionConfig.chains).length === 0 && episteryConfig.data['default.provider']?.privateRpc) {
-      ingestionConfig.chains.polygon = {
+    for (const entry of configuredChains()) {
+      const slug = CHAIN_SLUGS[entry.chainId];
+      if (!slug) continue;
+      ingestionConfig.chains[slug] = {
         enabled: true,
-        rpcUrl: episteryConfig.data['default.provider'].privateRpc
+        rpcUrl: entry.privateRpc || entry.rpc,
+        chainId: entry.chainId
       };
     }
 

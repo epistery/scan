@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import mongodb from 'mongodb';
-import { Config } from 'epistery';
+import { Config, configuredChains } from 'epistery';
 import { ChainConnectorFactory } from '../ingestion/ChainConnector.mjs';
 import Database from '../db/Database.mjs';
 
@@ -28,12 +28,14 @@ async function populateTransactions() {
   const database = new Database(connector);
   await database.initialize();
 
-  // Initialize chain connectors
+  // Initialize chain connectors — use registry for RPC URLs
+  const amoy = configuredChains().find(c => c.chainId === 80002);
   const ingestionConfig = {
     chains: {
       'polygon-amoy': {
         enabled: true,
-        rpcUrl: config.data.chains?.['polygon-amoy']?.rpcUrl || 'https://rpc-amoy.polygon.technology'
+        rpcUrl: amoy?.privateRpc || amoy?.rpc || 'https://rpc-amoy.polygon.technology',
+        chainId: 80002
       }
     }
   };

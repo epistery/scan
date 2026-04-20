@@ -5,337 +5,496 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>AI Discovery — Epistery Scan</title>
   <style>
-    * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
-    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
 
     body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-      background: #f5f5f5;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #fafafa;
       color: #333;
+      min-height: 100vh;
     }
 
-    .header {
-      background: #fff;
-      border-bottom: 1px solid #e0e0e0;
-      padding: 1rem 2rem;
-      box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    /* --- Landing state: centered search --- */
+    .landing {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      padding: 2rem;
+      transition: all 0.3s ease;
     }
 
-    .header h1 {
-      font-size: 1.5rem;
+    .landing.has-results {
+      min-height: auto;
+      justify-content: flex-start;
+      padding-top: 2rem;
+    }
+
+    .logo {
+      margin-bottom: 2rem;
+      text-align: center;
+    }
+
+    .logo h1 {
+      font-size: 3rem;
+      font-weight: 300;
       color: #2c3e50;
+      letter-spacing: -0.02em;
     }
 
-    .header p {
-      font-size: 0.9rem;
-      color: #666;
-      margin-top: 0.25rem;
-      max-width: 700px;
-      line-height: 1.5;
+    .has-results .logo h1 {
+      font-size: 1.5rem;
     }
 
-    .header p code {
-      background: #f0f0f0;
-      padding: 0.1rem 0.3rem;
-      border-radius: 3px;
+    .logo .subtitle {
+      font-size: 1rem;
+      color: #888;
+      margin-top: 0.5rem;
+    }
+
+    .has-results .logo .subtitle {
+      display: none;
+    }
+
+    /* --- Search bar (from index.html) --- */
+    .search-bar {
+      width: 100%;
+      max-width: 640px;
+      display: flex;
+      gap: 0;
+      border: 2px solid #ddd;
+      border-radius: 28px;
+      overflow: hidden;
+      background: #fff;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+
+    .search-bar:focus-within {
+      border-color: #3498db;
+      box-shadow: 0 2px 12px rgba(52,152,219,0.15);
+    }
+
+    .search-bar input {
+      flex: 1;
+      min-width: 0;
+      padding: 0.9rem 1.5rem;
+      border: none;
+      outline: none;
+      font-size: 1.05rem;
+      background: transparent;
+    }
+
+    .search-bar button {
+      padding: 0.9rem 1.75rem;
+      background: transparent;
+      border: none;
+      cursor: pointer;
+      font-size: 1.1rem;
+      color: #3498db;
+      transition: background 0.15s;
+    }
+
+    .search-bar button:hover {
+      background: #f0f7ff;
+    }
+
+    /* --- Stats line --- */
+    .stats {
+      margin-top: 1.25rem;
       font-size: 0.85rem;
+      color: #aaa;
+      text-align: center;
     }
 
-    .back-link {
-      display: inline-block;
-      margin-bottom: 0.5rem;
-      font-size: 0.9rem;
+    .stats span { color: #3498db; font-weight: 600; }
+
+    .has-results .stats { display: none; }
+
+    /* --- Submit line --- */
+    .submit-line {
+      margin-top: 0.75rem;
+      font-size: 0.85rem;
+      color: #aaa;
+      text-align: center;
+    }
+
+    .submit-line a {
       color: #3498db;
       text-decoration: none;
     }
 
-    .back-link:hover {
-      text-decoration: underline;
+    .submit-line a:hover { text-decoration: underline; }
+
+    .has-results .submit-line { display: none; }
+
+    /* --- Results --- */
+    .results-area {
+      width: 100%;
+      max-width: 720px;
+      margin-top: 1.5rem;
+      display: none;
     }
 
-    .container {
-      max-width: 1200px;
-      margin: 2rem auto;
-      padding: 0 1rem;
-    }
-
-    .section {
-      background: #fff;
-      border-radius: 8px;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-      margin-bottom: 2rem;
-      overflow: hidden;
-    }
-
-    .section-header {
-      padding: 1.5rem;
-      border-bottom: 1px solid #e0e0e0;
-    }
-
-    .section-header h2 {
-      font-size: 1.2rem;
-      color: #2c3e50;
-      margin-bottom: 0.5rem;
-    }
-
-    .section-header p {
+    .result-count {
       font-size: 0.85rem;
-      color: #888;
-      line-height: 1.5;
-    }
-
-    .stats-bar {
-      display: flex;
-      align-items: center;
-      gap: 1.5rem;
-      padding: 1rem 1.5rem;
-      background: #f9f9f9;
-      border-bottom: 1px solid #e0e0e0;
-      font-size: 0.9rem;
-      color: #666;
-    }
-
-    .stats-bar strong {
-      color: #2c3e50;
-    }
-
-    .add-domain-btn {
-      padding: 0.4rem 1rem;
-      background: #3498db;
-      color: white;
-      border: none;
-      border-radius: 4px;
-      font-size: 0.85rem;
-      cursor: pointer;
-      transition: background 0.2s;
-    }
-
-    .add-domain-btn:hover {
-      background: #2980b9;
-    }
-
-    .domain-list {
-      padding: 1.5rem;
-    }
-
-    .entity-card {
-      border: 1px solid #e0e0e0;
-      border-radius: 4px;
-      padding: 1rem;
+      color: #999;
       margin-bottom: 1rem;
     }
 
-    .entity-card:last-child {
-      margin-bottom: 0;
+    .result {
+      background: #fff;
+      border: 1px solid #e8e8e8;
+      border-radius: 8px;
+      padding: 1.25rem 1.5rem;
+      margin-bottom: 0.75rem;
+      transition: box-shadow 0.15s;
     }
 
-    .entity-card h3 {
-      font-size: 1.1rem;
-      margin-bottom: 0.5rem;
+    .result:hover {
+      box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+    }
+
+    .result-header {
+      display: flex;
+      align-items: baseline;
+      gap: 0.75rem;
+      flex-wrap: wrap;
+      min-width: 0;
+    }
+
+    .result-name {
+      font-size: 1.15rem;
+      font-weight: 600;
       color: #2c3e50;
     }
 
-    .entity-card .address {
-      font-family: monospace;
+    .result-domain {
+      font-size: 0.85rem;
       color: #3498db;
-      word-break: break-all;
-      font-size: 0.9rem;
-      margin-bottom: 0.5rem;
+      text-decoration: none;
+      overflow-wrap: anywhere;
     }
 
-    .entity-card .meta {
-      display: flex;
-      gap: 1rem;
-      flex-wrap: wrap;
-      font-size: 0.85rem;
-      color: #666;
+    .result-domain:hover { text-decoration: underline; }
+
+    .result-trust {
+      margin-left: auto;
+      flex-shrink: 0;
     }
 
     .badge {
       display: inline-block;
-      padding: 0.25rem 0.5rem;
+      padding: 0.2rem 0.6rem;
       border-radius: 3px;
-      font-size: 0.75rem;
-      font-weight: 600;
+      font-size: 0.7rem;
+      font-weight: 700;
       text-transform: uppercase;
+      letter-spacing: 0.03em;
     }
 
-    .badge.aidiscovery { background: #e8f5e9; color: #2e7d32; }
-    .badge.web { background: #e0f7fa; color: #00695c; }
+    .badge-verified { background: #c8e6c9; color: #2e7d32; }
+    .badge-signed   { background: #fff9c4; color: #f57f17; }
+    .badge-open     { background: #e3f2fd; color: #1565c0; }
 
-    .empty-state {
-      text-align: center;
-      padding: 3rem;
-      color: #999;
+    .result-mission {
+      margin-top: 0.5rem;
+      font-size: 0.95rem;
+      color: #555;
+      line-height: 1.5;
     }
 
-    .loading {
+    .result-concepts {
+      margin-top: 0.6rem;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.35rem;
+    }
+
+    .concept-tag {
+      display: inline-block;
+      padding: 0.15rem 0.5rem;
+      background: #f0f4f8;
+      border-radius: 3px;
+      font-size: 0.78rem;
+      color: #555;
+    }
+
+    .result-capabilities {
+      margin-top: 0.5rem;
+      display: flex;
+      gap: 0.35rem;
+      flex-wrap: wrap;
+    }
+
+    .cap-tag {
+      display: inline-block;
+      padding: 0.1rem 0.45rem;
+      background: #e8f5e9;
+      border-radius: 3px;
+      font-size: 0.72rem;
+      color: #2e7d32;
+      text-transform: uppercase;
+      font-weight: 600;
+    }
+
+    .result-meta {
+      margin-top: 0.5rem;
+      display: flex;
+      gap: 1rem;
+      flex-wrap: wrap;
+      font-size: 0.78rem;
+      color: #aaa;
+    }
+
+    .claim-link {
+      margin-top: 0.6rem;
+      font-size: 0.82rem;
+    }
+
+    .claim-link a {
+      color: #3498db;
+      text-decoration: none;
+      cursor: pointer;
+    }
+
+    .claim-link a:hover { text-decoration: underline; }
+
+    /* --- View Manifest / Add Domain actions --- */
+    .result-actions {
+      margin-top: 0.6rem;
+      display: flex;
+      gap: 0.75rem;
+      align-items: center;
+    }
+
+    .result-actions a,
+    .result-actions button {
+      font-size: 0.82rem;
+      color: #3498db;
+      text-decoration: none;
+      cursor: pointer;
+      background: none;
+      border: none;
+      padding: 0;
+    }
+
+    .result-actions a:hover,
+    .result-actions button:hover {
+      text-decoration: underline;
+    }
+
+    .add-btn {
+      padding: 0.3rem 0.75rem !important;
+      background: #3498db !important;
+      color: #fff !important;
+      border-radius: 4px !important;
+      font-weight: 600;
+      text-decoration: none !important;
+      transition: background 0.15s;
+    }
+
+    .add-btn:hover {
+      background: #2980b9 !important;
+      text-decoration: none !important;
+    }
+
+    /* --- ACE manifest viewer --- */
+    .manifest-viewer {
+      margin-top: 0.75rem;
+      border-top: 1px solid #e8e8e8;
+      padding-top: 0.75rem;
+    }
+
+    .manifest-viewer .ace-container {
+      width: 100%;
+      min-height: 350px;
+      border-radius: 4px;
+      overflow: hidden;
+    }
+
+    /* --- Not-found card --- */
+    .result-notfound {
+      border-left: 3px solid #e0e0e0;
+    }
+
+    .result-notfound .result-name { color: #999; }
+
+    /* --- Footer --- */
+    .footer {
       text-align: center;
       padding: 2rem;
-      color: #666;
+      font-size: 0.8rem;
+      color: #bbb;
     }
 
-    .scanner-section iframe {
-      width: 100%;
-      height: 700px;
-      border: none;
-    }
-
-    .scanner-fallback {
-      padding: 1rem 1.5rem;
-      font-size: 0.85rem;
-      color: #888;
-      border-top: 1px solid #e0e0e0;
-    }
-
-    .scanner-fallback a {
-      color: #3498db;
+    .footer a {
+      color: #999;
       text-decoration: none;
     }
 
-    .scanner-fallback a:hover {
-      text-decoration: underline;
+    .footer a:hover { text-decoration: underline; }
+
+    /* --- No results --- */
+    .no-results {
+      text-align: center;
+      padding: 2rem;
+      color: #999;
+    }
+
+    .no-results h3 {
+      font-weight: 500;
+      margin-bottom: 0.5rem;
+    }
+
+    .no-results p {
+      font-size: 0.9rem;
+      line-height: 1.6;
+    }
+
+    .no-results code {
+      background: #f0f0f0;
+      padding: 0.1rem 0.4rem;
+      border-radius: 3px;
+      font-size: 0.85rem;
     }
   </style>
 </head>
 <body>
-  <div class="header">
-    <a href="/" class="back-link">&larr; Back to Search</a>
-    <h1>AI Discovery</h1>
-    <p>Announce your website to AI agents. Publish a <code>/.well-known/ai</code> manifest and submit your domain for indexing.</p>
+  <div class="landing" id="landing">
+    <div class="logo">
+      <h1>AI Discovery</h1>
+      <p class="subtitle">Search and explore the signed web</p>
+    </div>
+
+    <div class="search-bar">
+      <input type="text" id="searchInput"
+             placeholder="Search domains, keywords, or enter a domain..."
+             autocomplete="off"
+             spellcheck="false">
+      <button id="searchBtn" aria-label="Search">&#x2192;</button>
+    </div>
+
+    <div class="stats" id="stats"></div>
+    <div class="submit-line">
+      Publish <code>/.well-known/ai</code> to be indexed &mdash;
+      <a href="https://rootz.global/ai-discovery">learn how</a>
+      &nbsp;&middot;&nbsp;
+      <a href="/">back to search</a>
+    </div>
+
+    <div class="results-area" id="resultsArea">
+      <div class="result-count" id="resultCount"></div>
+      <div id="resultsList"></div>
+    </div>
   </div>
 
-  <div class="container">
-    <!-- Indexed Domains -->
-    <div class="section">
-      <div class="section-header">
-        <div style="display: flex; justify-content: space-between; align-items: center;">
-          <h2>Indexed Domains</h2>
-          <button class="add-domain-btn" onclick="showAddDomain()">Add Domain</button>
-        </div>
-        <p>Domains publishing <code>/.well-known/ai</code> manifests, verified and indexed by Epistery Scan.</p>
-      </div>
-      <div class="stats-bar" id="stats-bar">
-        <span><strong id="domain-count">—</strong> domains indexed</span>
-      </div>
-      <div class="domain-list" id="domain-list">
-        <div class="loading">Loading discovered domains...</div>
-      </div>
-    </div>
-
-    <!-- Scanner Embed -->
-    <div class="section scanner-section">
-      <div class="section-header">
-        <h2>AI Discovery Standard — Scanner &amp; Tools</h2>
-        <p>Scan your domain, generate a manifest, learn how to improve your AI readability grade.</p>
-      </div>
-      <iframe src="https://rootz.global/ai-discovery" title="AI Discovery Scanner"></iframe>
-      <div class="scanner-fallback">
-        Can't see the scanner? <a href="https://rootz.global/ai-discovery" target="_blank">Open AI Discovery Scanner &rarr;</a>
-      </div>
-    </div>
+  <div class="footer">
+    <a href="/">Epistery Search</a> &nbsp;&middot;&nbsp;
+    <a href="/.well-known/ai">/.well-known/ai</a> &nbsp;&middot;&nbsp;
+    <a href="https://rootz.global/ai-discovery">AI Discovery Standard</a>
   </div>
 
   <script>
-    function renderAIDiscoveryCard(entity) {
-      const manifest = entity.metadata?.manifest || {};
-      const org = manifest.organization || {};
-      const verification = entity.metadata?.verification || {};
-      const capabilities = manifest.capabilities || {};
-      const concepts = manifest.coreConcepts || [];
-      const tiers = entity.metadata?.tiers || {};
-      const discoveryMethod = entity.metadata?.discoveryMethod || 'native';
-      const txtVerification = entity.metadata?.txtVerification || {};
+    const input = document.getElementById('searchInput');
+    const btn = document.getElementById('searchBtn');
+    const landing = document.getElementById('landing');
+    const resultsArea = document.getElementById('resultsArea');
+    const resultsList = document.getElementById('resultsList');
+    const resultCount = document.getElementById('resultCount');
+    const statsEl = document.getElementById('stats');
 
-      let sigStatus = 'Unsigned';
-      let sigColor = '#999';
-      if (verification.hashValid) {
-        sigStatus = verification.digitalNameMatch ? 'Verified' : 'Hash valid';
-        sigColor = verification.digitalNameMatch ? '#2e7d32' : '#f57f17';
-      } else if (verification.signed) {
-        sigStatus = 'Signed';
-        sigColor = '#1565c0';
+    let debounceTimer = null;
+    let aceEditor = null;
+    let aceLoaded = false;
+    let openManifestDomain = null;
+
+    // --- Stats ---
+    function loadStats() {
+      fetch('/api/search/stats')
+        .then(r => r.json())
+        .then(s => {
+          statsEl.innerHTML = `<span>${s.domains}</span> signed domains &middot; <span>${s.concepts}</span> concepts indexed &middot; <span>${s.verified}</span> verified`;
+        })
+        .catch(() => {});
+    }
+    loadStats();
+
+    // --- Debounced input ---
+    input.addEventListener('input', onInput);
+    input.addEventListener('keydown', e => {
+      if (e.key === 'Enter') {
+        clearTimeout(debounceTimer);
+        doSearch(input.value.trim());
       }
+    });
+    btn.addEventListener('click', () => {
+      clearTimeout(debounceTimer);
+      doSearch(input.value.trim());
+    });
 
-      const methodLabels = {
-        'native': '/.well-known/ai',
-        'link-tag': '<link> tag',
-        'subdomain': 'ai.* subdomain',
-        'dns-txt': 'DNS TXT'
-      };
-      const methodLabel = methodLabels[discoveryMethod] || discoveryMethod;
-
-      const txtBadge = txtVerification.hasTxtRecord
-        ? '<span style="display:inline-block;padding:0.15rem 0.4rem;border-radius:3px;font-size:0.7rem;font-weight:600;background:#c8e6c9;color:#2e7d32;">TXT Verified</span>'
-        : '<span style="display:inline-block;padding:0.15rem 0.4rem;border-radius:3px;font-size:0.7rem;font-weight:600;background:#e0e0e0;color:#888;">No TXT record</span>';
-
-      const capList = Object.keys(capabilities).filter(k => capabilities[k])
-        .map(c => `<span class="badge" style="background:#e8f5e9;color:#2e7d32;margin:2px;">${c}</span>`).join(' ');
-
-      const conceptList = concepts.slice(0, 6)
-        .map(c => `<span class="badge" style="background:#e3f2fd;color:#1565c0;margin:2px;">${c.term || c}</span>`).join(' ');
-
-      const tierList = Object.keys(tiers)
-        .map(t => `<span style="color:#666;font-size:0.8rem;">${t}</span>`).join(' | ');
-
-      return `
-        <div class="entity-card">
-          <h3>
-            <span class="badge aidiscovery">AI Discovery</span>
-            <span class="badge web">web</span>
-            <span style="color:${sigColor};font-size:0.8rem;margin-left:0.5rem;">${sigStatus}</span>
-            ${txtBadge}
-          </h3>
-          <div class="address">
-            <a href="https://${entity.address}" target="_blank" style="color:#3498db;">${entity.address}</a>
-          </div>
-          <div class="meta">
-            ${org.name ? `<span><strong>Organization:</strong> ${org.name}</span>` : ''}
-            ${org.description ? `<span><strong>Description:</strong> ${org.description}</span>` : ''}
-            <span><strong>Discovered via:</strong> ${methodLabel}</span>
-            ${entity._created ? `<span><strong>First seen:</strong> ${new Date(entity._created).toLocaleString()}</span>` : ''}
-            ${entity._modified ? `<span><strong>Last updated:</strong> ${new Date(entity._modified).toLocaleString()}</span>` : ''}
-          </div>
-          ${capList ? `<div style="margin-top:0.5rem;"><strong style="font-size:0.85rem;">Capabilities:</strong> ${capList}</div>` : ''}
-          ${conceptList ? `<div style="margin-top:0.5rem;"><strong style="font-size:0.85rem;">Concepts:</strong> ${conceptList}</div>` : ''}
-          ${tierList ? `<div style="margin-top:0.5rem;font-size:0.85rem;"><strong>Tiers:</strong> ${tierList}</div>` : ''}
-        </div>
-      `;
+    function onInput() {
+      const q = input.value.trim();
+      clearTimeout(debounceTimer);
+      if (q.length < 2) {
+        if (q.length === 0) {
+          landing.classList.remove('has-results');
+          resultsArea.style.display = 'none';
+          resultsList.innerHTML = '';
+          resultCount.textContent = '';
+        }
+        return;
+      }
+      debounceTimer = setTimeout(() => doSearch(q), 300);
     }
 
-    async function loadDiscovery() {
-      const list = document.getElementById('domain-list');
+    // --- Search ---
+    async function doSearch(q) {
+      if (!q) return;
+
+      // Update URL
+      const url = new URL(window.location);
+      url.searchParams.set('q', q);
+      history.replaceState({}, '', url);
+
+      // Switch to results mode
+      landing.classList.add('has-results');
+      resultsArea.style.display = 'block';
+      resultsList.innerHTML = '<div style="text-align:center;padding:1rem;color:#999;">Searching...</div>';
+      resultCount.textContent = '';
+      openManifestDomain = null;
+
       try {
-        const res = await fetch('/api/discovery');
+        const res = await fetch(`/api/search?q=${encodeURIComponent(q)}`);
         const data = await res.json();
-        const domains = data.domains || [];
 
-        document.getElementById('domain-count').textContent = domains.length;
-
-        if (domains.length === 0) {
-          list.innerHTML = '<div class="empty-state">No domains indexed yet. Add a domain or wait for automatic discovery.</div>';
+        if (data.results && data.results.length > 0) {
+          resultCount.textContent = `${data.results.length} result${data.results.length === 1 ? '' : 's'}`;
+          resultsList.innerHTML = data.results.map(renderResult).join('');
           return;
         }
 
-        list.innerHTML = domains.map(entity => renderAIDiscoveryCard(entity)).join('');
-      } catch (error) {
-        list.innerHTML = `<div class="empty-state">Failed to load: ${error.message}</div>`;
+        // No search results — check if it looks like a domain
+        if (looksLikeDomain(q)) {
+          resultCount.textContent = '';
+          resultsList.innerHTML = '<div style="text-align:center;padding:1rem;color:#999;">Checking domain...</div>';
+          await checkDomain(q);
+        } else {
+          resultCount.textContent = '';
+          resultsList.innerHTML = renderEmpty(q);
+        }
+      } catch (err) {
+        resultsList.innerHTML = `<div class="no-results"><p>Search error: ${escapeHtml(err.message)}</p></div>`;
       }
     }
 
-    function showAddDomain() {
-      const domain = prompt('Enter domain to check (e.g. rootz.global):');
-      if (!domain) return;
-      submitDomain(domain);
+    function looksLikeDomain(q) {
+      return /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/i.test(q.replace(/^https?:\/\//, '').replace(/\/.*$/, ''));
     }
 
-    async function submitDomain(domain) {
-      const list = document.getElementById('domain-list');
-      list.innerHTML = `<div class="loading">Checking ${domain}...</div>`;
-
+    // --- Check / add unknown domain ---
+    async function checkDomain(domain) {
+      domain = domain.replace(/^https?:\/\//, '').replace(/\/.*$/, '');
       try {
         const res = await fetch('/api/discovery', {
           method: 'POST',
@@ -344,18 +503,280 @@
         });
         const data = await res.json();
 
-        if (data.success) {
-          loadDiscovery();
+        if (data.success && data.entity) {
+          // Has manifest — show card with "Add to Index" confirmation
+          resultCount.textContent = 'Domain discovered';
+          resultsList.innerHTML = renderDiscoveredCard(data.entity);
         } else {
-          list.innerHTML = `<div class="empty-state">${data.message}</div>`;
-          setTimeout(loadDiscovery, 2000);
+          // No manifest
+          resultCount.textContent = '';
+          resultsList.innerHTML = renderNotFoundCard(domain);
         }
-      } catch (error) {
-        list.innerHTML = `<div class="empty-state">Error: ${error.message}</div>`;
+      } catch (err) {
+        resultsList.innerHTML = `<div class="no-results"><p>Error checking domain: ${escapeHtml(err.message)}</p></div>`;
       }
     }
 
-    loadDiscovery();
+    async function addDomain(domain) {
+      const btn = document.querySelector(`[data-add-domain="${domain}"]`);
+      if (btn) {
+        btn.textContent = 'Indexing...';
+        btn.disabled = true;
+      }
+      try {
+        const res = await fetch('/api/discovery', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ domain })
+        });
+        const data = await res.json();
+        if (data.success) {
+          // Re-search to show the now-indexed result
+          doSearch(domain);
+          loadStats();
+        } else {
+          if (btn) btn.textContent = 'Failed — try again';
+        }
+      } catch (err) {
+        if (btn) btn.textContent = 'Error — try again';
+      }
+    }
+
+    // --- Render search result card (from index.html pattern) ---
+    function renderResult(r) {
+      const trustBadge = r.signature?.verified
+        ? '<span class="badge badge-verified">Verified</span>'
+        : r.signature?.signed
+          ? '<span class="badge badge-signed">Signed</span>'
+          : '<span class="badge badge-open">Open</span>';
+
+      const domain = r.domain
+        ? `<a class="result-domain" href="https://${escapeHtml(r.domain)}" target="_blank" rel="noopener">${escapeHtml(r.domain)}</a>`
+        : '';
+
+      const mission = r.mission
+        ? `<div class="result-mission">${escapeHtml(r.mission)}</div>`
+        : '';
+
+      const concepts = r.concepts && r.concepts.length > 0
+        ? `<div class="result-concepts">${r.concepts.slice(0, 8).map(c => `<span class="concept-tag">${escapeHtml(c)}</span>`).join('')}</div>`
+        : '';
+
+      const caps = renderCapabilities(r.capabilities);
+
+      const metaParts = [];
+      if (r.discoveryMethod) metaParts.push(`via ${escapeHtml(r.discoveryMethod)}`);
+      if (r.signature?.digitalName) metaParts.push(`${escapeHtml(r.signature.digitalName.slice(0,10))}...`);
+      if (r.lastChecked) metaParts.push(`checked ${new Date(r.lastChecked).toLocaleDateString()}`);
+      const meta = metaParts.length > 0
+        ? `<div class="result-meta">${metaParts.join(' &middot; ')}</div>`
+        : '';
+
+      const claim = (r.signature && !r.signature.signed && r.domain)
+        ? `<div class="claim-link"><a href="https://rootz.global/ai-discovery" target="_blank" rel="noopener">Claim this listing</a> &mdash; add a signature to own your search result</div>`
+        : '';
+
+      const manifestLink = r.domain
+        ? `<div class="result-actions"><a href="javascript:void(0)" onclick="viewManifest('${escapeAttr(r.domain)}')">View Manifest</a></div>`
+        : '';
+
+      const cardId = r.domain ? ` id="card-${escapeAttr(r.domain)}"` : '';
+
+      return `
+        <div class="result"${cardId}>
+          <div class="result-header">
+            <span class="result-name">${escapeHtml(r.name)}</span>
+            ${domain}
+            <span class="result-trust">${trustBadge}</span>
+          </div>
+          ${mission}
+          ${concepts}
+          ${caps}
+          ${meta}
+          ${claim}
+          ${manifestLink}
+        </div>
+      `;
+    }
+
+    // --- Render a freshly discovered domain card ---
+    function renderDiscoveredCard(entity) {
+      const manifest = entity.metadata?.manifest || {};
+      const org = manifest.organization || {};
+      const verification = entity.metadata?.verification || {};
+      const concepts = manifest.coreConcepts || [];
+      const capabilities = manifest.capabilities || {};
+
+      const trustBadge = verification.hashValid
+        ? (verification.digitalNameMatch
+          ? '<span class="badge badge-verified">Verified</span>'
+          : '<span class="badge badge-signed">Signed</span>')
+        : verification.signed
+          ? '<span class="badge badge-signed">Signed</span>'
+          : '<span class="badge badge-open">Open</span>';
+
+      const name = org.name || entity.address || 'Unknown';
+      const mission = org.description
+        ? `<div class="result-mission">${escapeHtml(org.description)}</div>`
+        : '';
+
+      const conceptTags = concepts.slice(0, 8)
+        .map(c => `<span class="concept-tag">${escapeHtml(c.term || c)}</span>`)
+        .join('');
+      const conceptsHtml = conceptTags
+        ? `<div class="result-concepts">${conceptTags}</div>`
+        : '';
+
+      const caps = renderCapabilities(capabilities);
+      const domain = entity.address;
+
+      return `
+        <div class="result" id="card-${escapeAttr(domain)}">
+          <div class="result-header">
+            <span class="result-name">${escapeHtml(name)}</span>
+            <a class="result-domain" href="https://${escapeHtml(domain)}" target="_blank" rel="noopener">${escapeHtml(domain)}</a>
+            <span class="result-trust">${trustBadge}</span>
+          </div>
+          ${mission}
+          ${conceptsHtml}
+          ${caps}
+          <div class="result-actions">
+            <a href="javascript:void(0)" onclick="viewManifest('${escapeAttr(domain)}')">View Manifest</a>
+            <button class="add-btn" data-add-domain="${escapeAttr(domain)}" onclick="addDomain('${escapeAttr(domain)}')">Add to Index</button>
+          </div>
+        </div>
+      `;
+    }
+
+    // --- Render not-found card ---
+    function renderNotFoundCard(domain) {
+      return `
+        <div class="result result-notfound">
+          <div class="result-header">
+            <span class="result-name">${escapeHtml(domain)}</span>
+          </div>
+          <div class="result-mission">No <code>/.well-known/ai</code> manifest found for this domain.</div>
+          <div class="result-actions">
+            <a href="https://rootz.global/ai-discovery" target="_blank" rel="noopener">Learn how to publish a manifest</a>
+          </div>
+        </div>
+      `;
+    }
+
+    function renderCapabilities(caps) {
+      if (!caps) return '';
+      const available = [];
+      for (const [key, val] of Object.entries(caps)) {
+        if (val && (val === true || val.available)) {
+          available.push(key);
+        }
+      }
+      if (available.length === 0) return '';
+      return `<div class="result-capabilities">${available.map(c => `<span class="cap-tag">${escapeHtml(c)}</span>`).join('')}</div>`;
+    }
+
+    function renderEmpty(q) {
+      return `
+        <div class="no-results">
+          <h3>No results for "${escapeHtml(q)}"</h3>
+          <p>
+            Epistery indexes sites that publish authored, signed data.<br>
+            If you own a domain, publish <code>/.well-known/ai</code> to appear here.<br>
+            See the <a href="https://rootz.global/ai-discovery" style="color:#3498db">AI Discovery Standard</a>.
+          </p>
+        </div>
+      `;
+    }
+
+    // --- ACE manifest viewer ---
+    async function viewManifest(domain) {
+      // Close if same domain clicked again
+      if (openManifestDomain === domain) {
+        const existing = document.querySelector('.manifest-viewer');
+        if (existing) existing.remove();
+        openManifestDomain = null;
+        return;
+      }
+
+      // Remove any open viewer
+      const prev = document.querySelector('.manifest-viewer');
+      if (prev) prev.remove();
+
+      const card = document.getElementById('card-' + domain);
+      if (!card) return;
+
+      // Create viewer container
+      const viewer = document.createElement('div');
+      viewer.className = 'manifest-viewer';
+      viewer.innerHTML = '<div style="text-align:center;padding:1rem;color:#999;">Loading manifest...</div>';
+      card.appendChild(viewer);
+      openManifestDomain = domain;
+
+      try {
+        // Lazy-load ACE
+        if (!aceLoaded) {
+          await new Promise((resolve, reject) => {
+            const s = document.createElement('script');
+            s.src = 'https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.6/ace.min.js';
+            s.onload = resolve;
+            s.onerror = reject;
+            document.head.appendChild(s);
+          });
+          aceLoaded = true;
+        }
+
+        // Fetch manifest
+        const res = await fetch(`/api/discovery/${encodeURIComponent(domain)}`);
+        const data = await res.json();
+        const manifest = data.entity?.metadata?.manifest || data.entity || data;
+
+        // Render ACE editor
+        const aceId = 'ace-' + domain.replace(/\W/g, '-');
+        viewer.innerHTML = `<div class="ace-container" id="${aceId}"></div>`;
+
+        aceEditor = window.ace.edit(aceId);
+        aceEditor.setTheme('ace/theme/monokai');
+        aceEditor.session.setMode('ace/mode/json');
+        aceEditor.setReadOnly(true);
+        aceEditor.setShowPrintMargin(false);
+        aceEditor.session.setUseWrapMode(true);
+        aceEditor.renderer.setShowGutter(true);
+        aceEditor.setValue(JSON.stringify(manifest, null, 2), -1);
+      } catch (err) {
+        viewer.innerHTML = `<div style="padding:1rem;color:#c0392b;">Error loading manifest: ${escapeHtml(err.message)}</div>`;
+      }
+    }
+
+    // --- Utility ---
+    function escapeHtml(str) {
+      if (!str) return '';
+      const div = document.createElement('div');
+      div.textContent = str;
+      return div.innerHTML;
+    }
+
+    function escapeAttr(str) {
+      return str.replace(/'/g, "\\'").replace(/"/g, '&quot;');
+    }
+
+    // --- URL query support ---
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('q')) {
+      input.value = params.get('q');
+      doSearch(params.get('q'));
+    }
+
+    window.addEventListener('popstate', () => {
+      const p = new URLSearchParams(window.location.search);
+      if (p.get('q')) {
+        input.value = p.get('q');
+        doSearch(p.get('q'));
+      } else {
+        landing.classList.remove('has-results');
+        resultsArea.style.display = 'none';
+        resultsList.innerHTML = '';
+      }
+    });
   </script>
 </body>
 </html>
