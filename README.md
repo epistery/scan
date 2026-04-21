@@ -233,13 +233,13 @@ Epistery Scan understands these event types:
 npm install
 ```
 
-### 2. Configure (`~/.epistery/config.ini`)
+### 2. Configure root `~/.epistery/config.ini`
 
 All configuration via epistery Config module — no `.env` files, no `secrets.json`.
 
 ```ini
 [profile]
-email=your@email.com
+email=your@email.com            # present = HTTPS via Certify; omit = dev HTTP
 
 [mongo]
 host=10.0.0.112
@@ -259,21 +259,45 @@ autostart=false
 
 **Harness**: Maps hostnames to child service directories. Each child must have `src/server.js`. Leave empty for standalone operation.
 
+**Important — the harness key is the service's canonical hostname, not a routing alias.** `handlers/McpProxy.mjs` hardcodes `MCP_HOST = 'mcp.epistery.io'` and matches child responses by that exact hostname. Using `mcp.localhost` or similar will spawn the child and pass health checks, but the UI will report *"MCP Registry unavailable — running in dev mode without harness"*. The hostname is an identity key (see shadow-DNS config below), not just a route.
+
 **Ingestion**: `autostart=false` (default) means no automatic RPC polling. Set `true` on the production host. When disabled, manual ingestion still works via `/api/monitor` and `/api/fetch`.
 
-**Env vars**: Only `PORT`, `PORTSSL`, and `PROFILE=DEV` are allowed as env vars. Everything else goes in config.ini.
+**Env vars**: Only `PORT` and `PORTSSL` are honored. Everything else — including dev/prod mode — comes from config.ini.
 
-### 3. Run
+### 3. Per-service (shadow-DNS) configs
 
-```bash
-npm start                  # Production: HTTPS :443 + HTTP :80 via Certify
-                           # Spawns harness children, provisions TLS
-                           # Requires [profile] email in config.ini
+Each harness child reads its own scoped config from `~/.epistery/<hostname>/config.ini`. The hostname is an identity key (like a wallet address) — the child code does `config.setPath('/<hostname>')` to find it. Don't rename these for a local environment; they must match the same hostname used in `[harness]`.
 
-PROFILE=DEV npm start      # Dev: HTTP :3000, no TLS, no harness children
+Example — `mcp-registry` reads MySQL creds from `~/.epistery/mcp.epistery.io/config.ini`:
+
+```ini
+[mysql]
+host=127.0.0.1
+port=3307
+user=admin
+password=your_password
+database=mcp_registry
 ```
 
-In production, scan **is** the multisite host. It owns :80/:443, provisions TLS via Certify, and spawns child services (mcp-registry) through its built-in Harness. No external reverse proxy needed.
+**External deps** — mcp-registry expects MySQL reachable at the configured host/port. On a workstation without direct LAN access to the DB, tunnel it:
+```bash
+ssh -L 3307:10.5.0.54:3306 ubuntu@epistery.host -N -f
+```
+
+### 4. Run
+
+```bash
+npm start                  # Prod mode (when [profile] email is set):
+                           #   HTTPS :PORTSSL (default 443) + HTTP :PORT (default 80) via Certify
+                           #   Spawns harness children, provisions TLS
+
+npm start                  # Dev mode (when [profile] email is absent):
+                           #   Plain HTTP on :PORT (default 3000), no TLS
+                           #   Harness children still spawn if [harness] is configured
+```
+
+The dev/prod toggle is driven entirely by whether `[profile] email` is set in config.ini. Harness children spawn in both modes whenever `[harness]` is configured. In production, scan **is** the multisite host — it owns :80/:443, provisions TLS via Certify, and spawns child services through its built-in Harness. No external reverse proxy needed.
 
 ## Tech Stack
 
