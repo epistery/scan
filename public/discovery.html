@@ -4,6 +4,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>AI Discovery — Epistery Scan</title>
+  <link rel="alternate" type="application/json" href="/api/discovery">
+  <link rel="ai-discovery" href="/.well-known/ai">
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -358,9 +360,65 @@
       border-radius: 3px;
       font-size: 0.85rem;
     }
+
+    /* --- Nav menu --- */
+    .nav-toggle {
+      position: fixed;
+      top: 12px;
+      left: 12px;
+      z-index: 1001;
+      background: none;
+      border: none;
+      font-size: 1.5rem;
+      cursor: pointer;
+      color: #2c3e50;
+      padding: 4px 8px;
+      border-radius: 4px;
+    }
+    .nav-toggle:hover { background: #f0f0f0; }
+
+    .nav-panel {
+      position: fixed;
+      top: 0; left: -220px;
+      width: 200px;
+      height: 100vh;
+      background: #fff;
+      border-right: 1px solid #e8e8e8;
+      z-index: 1000;
+      transition: left 0.2s ease;
+      padding: 3.5rem 1rem 1rem;
+      box-shadow: 2px 0 8px rgba(0,0,0,0.05);
+    }
+    .nav-panel.open { left: 0; }
+
+    .nav-panel a {
+      display: block;
+      padding: 0.6rem 0.5rem;
+      color: #2c3e50;
+      text-decoration: none;
+      font-size: 0.95rem;
+      border-radius: 4px;
+    }
+    .nav-panel a:hover { background: #f0f4f8; }
+    .nav-panel a.active { font-weight: 600; color: #3498db; }
+    .nav-panel hr {
+      border: none;
+      border-top: 1px solid #e8e8e8;
+      margin: 0.5rem 0.5rem;
+    }
   </style>
 </head>
 <body>
+  <button class="nav-toggle" id="navToggle" aria-label="Menu">&#9776;</button>
+  <nav class="nav-panel open" id="navPanel">
+    <a href="/">Search</a>
+    <a href="/discovery" class="active">Discovery</a>
+    <a href="/tools">MCP Tools</a>
+    <hr>
+    <a href="/about">About</a>
+    <a href="/developers">Developers</a>
+  </nav>
+
   <div class="landing" id="landing">
     <div class="logo">
       <h1>AI Discovery</h1>
@@ -758,6 +816,11 @@
     function escapeAttr(str) {
       return str.replace(/'/g, "\\'").replace(/"/g, '&quot;');
     }
+
+    // Nav menu toggle
+    document.getElementById('navToggle').addEventListener('click', () => {
+      document.getElementById('navPanel').classList.toggle('open');
+    });
 
     // --- URL query support ---
     const params = new URLSearchParams(window.location.search);

@@ -12,7 +12,9 @@ import EventHandler from './handlers/Event.mjs';
 import FetchHandler from './handlers/Fetch.mjs';
 import DiscoveryHandler from './handlers/Discovery.mjs';
 import FeedHandler from './handlers/Feed.mjs';
+import McpProxy from './handlers/McpProxy.mjs';
 import Harness from './lib/Harness.mjs';
+import { wantsJson } from './lib/negotiate.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -124,6 +126,7 @@ export default class EpisteryScan {
     const fetchHandler = new FetchHandler(this.connector);
     const discoveryHandler = new DiscoveryHandler(this.connector);
     const feedHandler = new FeedHandler(this.connector);
+    const mcpProxy = new McpProxy(this.connector, this.harness);
 
     // Link handlers to ingestion
     searchHandler.setIngestion(this.ingestion);
@@ -139,6 +142,7 @@ export default class EpisteryScan {
     router.use('/api/fetch', fetchHandler.routes());
     router.use('/api/discovery', discoveryHandler.routes());
     router.use('/api/feed', feedHandler.routes());
+    router.use('/api/mcp', mcpProxy.routes());
 
     // Health check
     router.get('/health', (req, res) => {
@@ -165,14 +169,71 @@ export default class EpisteryScan {
       </svg>`);
     });
 
-    // Search page — the main UI
-    router.get('/', (req, res) => {
+    // Search page — content negotiation: bots get JSON, browsers get HTML
+    router.get('/', async (req, res) => {
+      if (wantsJson(req)) {
+        try {
+          if (req.query.q) {
+            const results = await searchHandler.search(req.query.q, parseInt(req.query.limit) || 20);
+            return res.json(results);
+          }
+          const stats = await searchHandler.getStats();
+          return res.json({
+            service: 'epistery-scan',
+            description: 'Search the signed web',
+            stats,
+            apis: {
+              search: '/api/search?q={query}',
+              discovery: '/api/discovery',
+              feed: '/api/feed',
+              mcp: '/api/mcp/categories'
+            }
+          });
+        } catch (err) {
+          return res.status(500).json({ error: err.message });
+        }
+      }
       res.sendFile(path.join(__dirname, 'public/index.html'));
     });
 
-    // Discovery page
-    router.get('/discovery', (req, res) => {
+    // Discovery page — content negotiation
+    router.get('/discovery', async (req, res) => {
+      if (wantsJson(req)) {
+        try {
+          const entities = await this.db.collection('entities')
+            .find({ type: 'AIDiscovery' })
+            .sort({ _modified: -1 })
+            .limit(100)
+            .toArray();
+          return res.json({
+            total: entities.length,
+            domains: entities.map(e => ({
+              domain: e.address,
+              name: e.metadata?.manifest?.organization?.name || e.address,
+              lastChecked: e._modified || e._created
+            }))
+          });
+        } catch (err) {
+          return res.status(500).json({ error: err.message });
+        }
+      }
       res.sendFile(path.join(__dirname, 'public/discovery.html'));
+    });
+
+    // MCP Tools browser — content negotiation
+    router.get('/tools', async (req, res) => {
+      if (wantsJson(req)) {
+        return mcpProxy._proxy(req, res, '/api/stats');
+      }
+      res.sendFile(path.join(__dirname, 'public/tools.html'));
+    });
+
+    // Placeholder pages
+    router.get('/about', (req, res) => {
+      res.sendFile(path.join(__dirname, 'public/about.html'));
+    });
+    router.get('/developers', (req, res) => {
+      res.sendFile(path.join(__dirname, 'public/developers.html'));
     });
 
     console.log(`[epistery-scan] Agent attached — search the signed web`);
@@ -273,8 +334,8 @@ if (import.meta.url === (await import('url')).pathToFileURL(process.argv[1]).hre
           description: 'Cross-chain blockchain explorer and AI discovery indexer for the Epistery ecosystem'
         },
         capabilities: {
-          knowledge: false,
-          feed: false,
+          knowledge: { available: true, url: '/api/search' },
+          feed: { available: true, url: '/api/feed' },
           query: {
             available: true,
             url: '/api/search',
@@ -287,7 +348,12 @@ if (import.meta.url === (await import('url')).pathToFileURL(process.argv[1]).hre
           discovery: { url: '/api/discovery', methods: ['GET', 'POST'], description: 'GET lists indexed domains. POST {domain} to submit a new domain for indexing.' },
           discoveryDetail: { url: '/api/discovery/{domain}', method: 'GET', description: 'Full manifest and crawl state for a specific domain.' },
           events: { url: '/api/events', method: 'GET', description: 'Query blockchain events by entityId, type, chain.' },
-          monitor: { url: '/api/monitor', methods: ['GET', 'POST'], description: 'List or add monitored blockchain contracts.' }
+          monitor: { url: '/api/monitor', methods: ['GET', 'POST'], description: 'List or add monitored blockchain contracts.' },
+          feed: { url: '/api/feed', method: 'GET', description: 'Recent changes feed of indexed domains.' },
+          stats: { url: '/api/search/stats', method: 'GET', description: 'Index statistics — domains, concepts, verified count.' },
+          submit: { url: '/api/search/submit', method: 'POST', description: 'Submit a domain for discovery. Body: { domain }.' },
+          mcpCategories: { url: '/api/mcp/categories', method: 'GET', description: 'MCP service categories from the registry.' },
+          mcpSearch: { url: '/api/mcp/search?q={query}', method: 'GET', description: 'Search MCP services by name or keyword.' }
         },
         stats: {
           indexedDomains: domainCount,

@@ -1,0 +1,569 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MCP Tools — Epistery Scan</title>
+  <link rel="alternate" type="application/json" href="/api/mcp/categories">
+  <link rel="ai-discovery" href="/.well-known/ai">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #fafafa;
+      color: #333;
+      min-height: 100vh;
+    }
+
+    /* --- Nav menu --- */
+    .nav-toggle {
+      position: fixed;
+      top: 12px;
+      left: 12px;
+      z-index: 1001;
+      background: none;
+      border: none;
+      font-size: 1.5rem;
+      cursor: pointer;
+      color: #2c3e50;
+      padding: 4px 8px;
+      border-radius: 4px;
+    }
+    .nav-toggle:hover { background: #f0f0f0; }
+
+    .nav-panel {
+      position: fixed;
+      top: 0; left: -220px;
+      width: 200px;
+      height: 100vh;
+      background: #fff;
+      border-right: 1px solid #e8e8e8;
+      z-index: 1000;
+      transition: left 0.2s ease;
+      padding: 3.5rem 1rem 1rem;
+      box-shadow: 2px 0 8px rgba(0,0,0,0.05);
+    }
+    .nav-panel.open { left: 0; }
+
+    .nav-panel a {
+      display: block;
+      padding: 0.6rem 0.5rem;
+      color: #2c3e50;
+      text-decoration: none;
+      font-size: 0.95rem;
+      border-radius: 4px;
+    }
+    .nav-panel a:hover { background: #f0f4f8; }
+    .nav-panel a.active { font-weight: 600; color: #7c3aed; }
+    .nav-panel hr {
+      border: none;
+      border-top: 1px solid #e8e8e8;
+      margin: 0.5rem 0.5rem;
+    }
+
+    /* --- Page header --- */
+    .page-header {
+      text-align: center;
+      padding: 3rem 2rem 1.5rem;
+    }
+
+    .page-header h1 {
+      font-size: 2.5rem;
+      font-weight: 300;
+      color: #2c3e50;
+      letter-spacing: -0.02em;
+    }
+
+    .page-header .subtitle {
+      font-size: 1rem;
+      color: #888;
+      margin-top: 0.5rem;
+    }
+
+    /* --- Search bar --- */
+    .search-wrap {
+      display: flex;
+      justify-content: center;
+      padding: 0 2rem 1.5rem;
+    }
+
+    .search-bar {
+      width: 100%;
+      max-width: 640px;
+      display: flex;
+      gap: 0;
+      border: 2px solid #ddd;
+      border-radius: 28px;
+      overflow: hidden;
+      background: #fff;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+
+    .search-bar:focus-within {
+      border-color: #7c3aed;
+      box-shadow: 0 2px 12px rgba(124,58,237,0.15);
+    }
+
+    .search-bar input {
+      flex: 1;
+      min-width: 0;
+      padding: 0.9rem 1.5rem;
+      border: none;
+      outline: none;
+      font-size: 1.05rem;
+      background: transparent;
+    }
+
+    .search-bar button {
+      padding: 0.9rem 1.75rem;
+      background: transparent;
+      border: none;
+      cursor: pointer;
+      font-size: 1.1rem;
+      color: #7c3aed;
+      transition: background 0.15s;
+    }
+
+    .search-bar button:hover {
+      background: #f5f0ff;
+    }
+
+    /* --- Stats line --- */
+    .stats-line {
+      text-align: center;
+      font-size: 0.85rem;
+      color: #aaa;
+      margin-bottom: 1.5rem;
+    }
+    .stats-line span { color: #7c3aed; font-weight: 600; }
+
+    /* --- Category grid --- */
+    .grid-wrap {
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 0 1.5rem 3rem;
+    }
+
+    .category-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+      gap: 0.75rem;
+    }
+
+    .cat-card {
+      background: #fff;
+      border: 1px solid #e8e8e8;
+      border-radius: 8px;
+      padding: 1rem;
+      cursor: pointer;
+      transition: box-shadow 0.15s, border-color 0.15s;
+    }
+
+    .cat-card:hover {
+      box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+      border-color: #d0d0d0;
+    }
+
+    .cat-card.expanded {
+      border-color: #7c3aed;
+      grid-column: 1 / -1;
+    }
+
+    .cat-name {
+      font-size: 0.95rem;
+      font-weight: 600;
+      color: #2c3e50;
+      margin-bottom: 0.3rem;
+    }
+
+    .cat-count {
+      font-size: 0.78rem;
+      color: #7c3aed;
+      font-weight: 600;
+    }
+
+    /* --- Service list inside expanded card --- */
+    .service-list {
+      margin-top: 0.75rem;
+      border-top: 1px solid #e8e8e8;
+      padding-top: 0.75rem;
+    }
+
+    .service-item {
+      display: flex;
+      align-items: baseline;
+      gap: 0.5rem;
+      padding: 0.5rem 0;
+      border-bottom: 1px solid #f0f0f0;
+      cursor: pointer;
+      flex-wrap: wrap;
+    }
+
+    .service-item:last-child { border-bottom: none; }
+
+    .service-item:hover { background: #faf8ff; }
+
+    .svc-name {
+      font-weight: 600;
+      color: #2c3e50;
+      font-size: 0.9rem;
+    }
+
+    .svc-desc {
+      font-size: 0.82rem;
+      color: #777;
+      flex: 1;
+      min-width: 0;
+    }
+
+    .svc-badges {
+      display: flex;
+      gap: 0.3rem;
+      flex-shrink: 0;
+    }
+
+    .badge-tools {
+      display: inline-block;
+      padding: 0.12rem 0.45rem;
+      background: #f3e8ff;
+      border-radius: 3px;
+      font-size: 0.68rem;
+      color: #7c3aed;
+      font-weight: 600;
+    }
+
+    .badge-live {
+      display: inline-block;
+      padding: 0.12rem 0.45rem;
+      background: #c8e6c9;
+      border-radius: 3px;
+      font-size: 0.68rem;
+      color: #2e7d32;
+      font-weight: 600;
+    }
+
+    .badge-offline {
+      display: inline-block;
+      padding: 0.12rem 0.45rem;
+      background: #ffcdd2;
+      border-radius: 3px;
+      font-size: 0.68rem;
+      color: #c62828;
+      font-weight: 600;
+    }
+
+    /* --- Search results --- */
+    .search-results {
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 0 1.5rem 3rem;
+      display: none;
+    }
+
+    .search-results .result-count {
+      font-size: 0.85rem;
+      color: #999;
+      margin-bottom: 1rem;
+    }
+
+    .search-group-title {
+      font-size: 0.82rem;
+      font-weight: 600;
+      color: #7c3aed;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      margin: 1.25rem 0 0.5rem;
+    }
+
+    .search-group-title:first-child { margin-top: 0; }
+
+    /* --- Unavailable banner --- */
+    .unavailable {
+      max-width: 640px;
+      margin: 2rem auto;
+      padding: 1rem 1.5rem;
+      background: #fff3e0;
+      border: 1px solid #ffe0b2;
+      border-radius: 6px;
+      text-align: center;
+      color: #e65100;
+      font-size: 0.9rem;
+    }
+
+    /* --- Footer --- */
+    .footer {
+      text-align: center;
+      padding: 2rem;
+      font-size: 0.8rem;
+      color: #bbb;
+    }
+
+    .footer a {
+      color: #999;
+      text-decoration: none;
+    }
+
+    .footer a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <button class="nav-toggle" id="navToggle" aria-label="Menu">&#9776;</button>
+  <nav class="nav-panel open" id="navPanel">
+    <a href="/">Search</a>
+    <a href="/discovery">Discovery</a>
+    <a href="/tools" class="active">MCP Tools</a>
+    <hr>
+    <a href="/about">About</a>
+    <a href="/developers">Developers</a>
+  </nav>
+
+  <div class="page-header">
+    <h1>MCP Tools</h1>
+    <p class="subtitle">Browse and query Model Context Protocol services</p>
+  </div>
+
+  <div class="search-wrap">
+    <div class="search-bar">
+      <input type="text" id="searchInput"
+             placeholder="Search MCP services..."
+             autocomplete="off"
+             spellcheck="false">
+      <button id="searchBtn" aria-label="Search">&#x2192;</button>
+    </div>
+  </div>
+
+  <div class="stats-line" id="statsLine"></div>
+
+  <div class="unavailable" id="unavailable" style="display:none">
+    MCP Registry unavailable &mdash; running in dev mode without harness.
+  </div>
+
+  <div class="grid-wrap" id="gridWrap">
+    <div class="category-grid" id="categoryGrid"></div>
+  </div>
+
+  <div class="search-results" id="searchResults">
+    <div class="result-count" id="searchCount"></div>
+    <div id="searchList"></div>
+  </div>
+
+  <div class="footer">
+    <a href="/">Epistery Search</a> &nbsp;&middot;&nbsp;
+    <a href="/.well-known/ai">/.well-known/ai</a> &nbsp;&middot;&nbsp;
+    <a href="https://rootz.global/ai-discovery">AI Discovery Standard</a>
+  </div>
+
+  <script>
+    const searchInput = document.getElementById('searchInput');
+    const searchBtn = document.getElementById('searchBtn');
+    const categoryGrid = document.getElementById('categoryGrid');
+    const gridWrap = document.getElementById('gridWrap');
+    const searchResults = document.getElementById('searchResults');
+    const searchList = document.getElementById('searchList');
+    const searchCount = document.getElementById('searchCount');
+    const statsLine = document.getElementById('statsLine');
+    const unavailable = document.getElementById('unavailable');
+
+    let categories = [];
+    let expandedSlug = null;
+    let debounceTimer = null;
+
+    // Nav menu
+    document.getElementById('navToggle').addEventListener('click', () => {
+      document.getElementById('navPanel').classList.toggle('open');
+    });
+
+    // --- Load categories on page load ---
+    async function loadCategories() {
+      try {
+        const res = await fetch('/api/mcp/categories');
+        if (res.status === 503) {
+          unavailable.style.display = 'block';
+          return;
+        }
+        const data = await res.json();
+        categories = data.categories || data || [];
+        renderGrid();
+      } catch (err) {
+        unavailable.style.display = 'block';
+      }
+    }
+
+    async function loadStats() {
+      try {
+        const res = await fetch('/api/mcp/stats');
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data.total_services) {
+          statsLine.innerHTML = `<span>${data.total_services.toLocaleString()}</span> MCP services across <span>${data.total_categories || categories.length}</span> categories`;
+        }
+      } catch {}
+    }
+
+    function renderGrid() {
+      categoryGrid.innerHTML = categories.map(cat => {
+        const slug = cat.slug || cat.name;
+        const name = cat.name || cat.slug;
+        const count = cat.count || cat.service_count || 0;
+        const isExpanded = expandedSlug === slug;
+        return `
+          <div class="cat-card${isExpanded ? ' expanded' : ''}" data-slug="${esc(slug)}" onclick="toggleCategory('${esc(slug)}')">
+            <div class="cat-name">${esc(name)}</div>
+            <div class="cat-count">${count} service${count === 1 ? '' : 's'}</div>
+            ${isExpanded ? '<div class="service-list" id="svc-' + esc(slug) + '"><div style="color:#999;font-size:0.85rem;">Loading...</div></div>' : ''}
+          </div>
+        `;
+      }).join('');
+    }
+
+    async function toggleCategory(slug) {
+      if (expandedSlug === slug) {
+        expandedSlug = null;
+        renderGrid();
+        return;
+      }
+
+      expandedSlug = slug;
+      renderGrid();
+
+      const listEl = document.getElementById('svc-' + slug);
+      if (!listEl) return;
+
+      try {
+        const res = await fetch(`/api/mcp/services?category=${encodeURIComponent(slug)}&limit=20`);
+        if (!res.ok) {
+          listEl.innerHTML = '<div style="color:#c62828;font-size:0.85rem;">Failed to load services</div>';
+          return;
+        }
+        const data = await res.json();
+        const services = data.services || data.results || data || [];
+
+        if (!services.length) {
+          listEl.innerHTML = '<div style="color:#999;font-size:0.85rem;">No services found</div>';
+          return;
+        }
+
+        // Sort by tools_count DESC
+        services.sort((a, b) => (b.tools_count || 0) - (a.tools_count || 0));
+
+        listEl.innerHTML = services.map(svc => renderServiceItem(svc)).join('');
+      } catch (err) {
+        listEl.innerHTML = `<div style="color:#c62828;font-size:0.85rem;">Error: ${esc(err.message)}</div>`;
+      }
+    }
+
+    function renderServiceItem(svc) {
+      const name = svc.name || svc.title || 'Unknown';
+      const desc = svc.description || '';
+      const tools = svc.tools_count || 0;
+      const reachable = svc.reachable;
+
+      const toolsBadge = tools ? `<span class="badge-tools">${tools} tool${tools === 1 ? '' : 's'}</span>` : '';
+      const statusBadge = reachable === true
+        ? '<span class="badge-live">Live</span>'
+        : reachable === false
+          ? '<span class="badge-offline">Offline</span>'
+          : '';
+
+      return `
+        <div class="service-item" onclick="delegateToService('${esc(name)}')">
+          <span class="svc-name">${esc(name)}</span>
+          <span class="svc-desc">${esc(truncate(desc, 80))}</span>
+          <span class="svc-badges">${toolsBadge}${statusBadge}</span>
+        </div>
+      `;
+    }
+
+    function delegateToService(name) {
+      window.location.href = '/?q=' + encodeURIComponent('@' + name + ' ');
+    }
+
+    // --- Search ---
+    searchInput.addEventListener('input', () => {
+      clearTimeout(debounceTimer);
+      const q = searchInput.value.trim();
+      if (!q) {
+        searchResults.style.display = 'none';
+        gridWrap.style.display = 'block';
+        return;
+      }
+      debounceTimer = setTimeout(() => doSearch(q), 300);
+    });
+
+    searchInput.addEventListener('keydown', e => {
+      if (e.key === 'Enter') {
+        clearTimeout(debounceTimer);
+        doSearch(searchInput.value.trim());
+      }
+    });
+
+    searchBtn.addEventListener('click', () => {
+      clearTimeout(debounceTimer);
+      doSearch(searchInput.value.trim());
+    });
+
+    async function doSearch(q) {
+      if (!q) return;
+
+      gridWrap.style.display = 'none';
+      searchResults.style.display = 'block';
+      searchList.innerHTML = '<div style="text-align:center;padding:1rem;color:#999;">Searching...</div>';
+      searchCount.textContent = '';
+
+      try {
+        const res = await fetch(`/api/mcp/search?q=${encodeURIComponent(q)}&limit=50`);
+        if (res.status === 503) {
+          searchList.innerHTML = '<div style="text-align:center;padding:1rem;color:#e65100;">MCP Registry unavailable</div>';
+          return;
+        }
+        const data = await res.json();
+        const services = data.services || data.results || data || [];
+
+        if (!services.length) {
+          searchCount.textContent = '';
+          searchList.innerHTML = `<div style="text-align:center;padding:2rem;color:#999;">No MCP services found for "${esc(q)}"</div>`;
+          return;
+        }
+
+        searchCount.textContent = `${services.length} result${services.length === 1 ? '' : 's'}`;
+
+        // Group by category
+        const groups = {};
+        for (const svc of services) {
+          const cat = svc.category || 'Other';
+          if (!groups[cat]) groups[cat] = [];
+          groups[cat].push(svc);
+        }
+
+        let html = '';
+        for (const [cat, svcs] of Object.entries(groups)) {
+          html += `<div class="search-group-title">${esc(cat)}</div>`;
+          svcs.sort((a, b) => (b.tools_count || 0) - (a.tools_count || 0));
+          html += svcs.map(svc => renderServiceItem(svc)).join('');
+        }
+        searchList.innerHTML = html;
+      } catch (err) {
+        searchList.innerHTML = `<div style="text-align:center;padding:1rem;color:#c62828;">Search error: ${esc(err.message)}</div>`;
+      }
+    }
+
+    // --- Utilities ---
+    function esc(str) {
+      if (!str) return '';
+      const div = document.createElement('div');
+      div.textContent = str;
+      return div.innerHTML;
+    }
+
+    function truncate(str, len) {
+      if (!str) return '';
+      return str.length > len ? str.slice(0, len) + '...' : str;
+    }
+
+    // --- Init ---
+    loadCategories();
+    loadStats();
+  </script>
+</body>
+</html>

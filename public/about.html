@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>About — Epistery Scan</title>
+  <link rel="ai-discovery" href="/.well-known/ai">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #fafafa;
+      color: #333;
+      min-height: 100vh;
+    }
+    .nav-toggle {
+      position: fixed; top: 12px; left: 12px; z-index: 1001;
+      background: none; border: none; font-size: 1.5rem; cursor: pointer;
+      color: #2c3e50; padding: 4px 8px; border-radius: 4px;
+    }
+    .nav-toggle:hover { background: #f0f0f0; }
+    .nav-panel {
+      position: fixed; top: 0; left: -220px; width: 200px; height: 100vh;
+      background: #fff; border-right: 1px solid #e8e8e8; z-index: 1000;
+      transition: left 0.2s ease; padding: 3.5rem 1rem 1rem;
+      box-shadow: 2px 0 8px rgba(0,0,0,0.05);
+    }
+    .nav-panel.open { left: 0; }
+    .nav-panel a {
+      display: block; padding: 0.6rem 0.5rem; color: #2c3e50;
+      text-decoration: none; font-size: 0.95rem; border-radius: 4px;
+    }
+    .nav-panel a:hover { background: #f0f4f8; }
+    .nav-panel a.active { font-weight: 600; color: #3498db; }
+    .nav-panel hr {
+      border: none;
+      border-top: 1px solid #e8e8e8;
+      margin: 0.5rem 0.5rem;
+    }
+    .content {
+      max-width: 640px; margin: 0 auto; padding: 4rem 2rem 3rem;
+    }
+    .content h1 { font-size: 2rem; font-weight: 300; color: #2c3e50; margin-bottom: 1.5rem; }
+    .content h2 { font-size: 1.15rem; font-weight: 600; color: #2c3e50; margin: 2rem 0 0.6rem; }
+    .content p { line-height: 1.7; margin-bottom: 1rem; color: #555; }
+    .content a { color: #3498db; text-decoration: none; }
+    .content a:hover { text-decoration: underline; }
+    .content code {
+      background: #f0f0f0; padding: 0.15rem 0.4rem; border-radius: 3px; font-size: 0.88rem;
+    }
+    .content ul {
+      margin: 0 0 1rem 1.25rem; color: #555; line-height: 1.7;
+    }
+    .content li { margin-bottom: 0.35rem; }
+    .sample-query {
+      display: block;
+      background: #fff;
+      border: 1px solid #e8e8e8;
+      border-left: 3px solid #3498db;
+      border-radius: 4px;
+      padding: 0.6rem 1rem;
+      margin-bottom: 0.5rem;
+      color: #2c3e50;
+      text-decoration: none;
+      font-size: 0.92rem;
+      transition: box-shadow 0.15s, border-color 0.15s;
+    }
+    .sample-query:hover {
+      box-shadow: 0 2px 6px rgba(0,0,0,0.06);
+      border-left-color: #2980b9;
+      text-decoration: none;
+    }
+    .sample-query .label {
+      font-weight: 600;
+    }
+    .sample-query .hint {
+      color: #888;
+      font-size: 0.82rem;
+    }
+    .sample-query.mcp {
+      border-left-color: #7c3aed;
+    }
+    .sample-query.mcp:hover {
+      border-left-color: #6d28d9;
+    }
+    .footer {
+      text-align: center; padding: 2rem; font-size: 0.8rem; color: #bbb;
+    }
+    .footer a { color: #999; text-decoration: none; }
+    .footer a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <button class="nav-toggle" id="navToggle" aria-label="Menu">&#9776;</button>
+  <nav class="nav-panel open" id="navPanel">
+    <a href="/">Search</a>
+    <a href="/discovery">Discovery</a>
+    <a href="/tools">MCP Tools</a>
+    <hr>
+    <a href="/about" class="active">About</a>
+    <a href="/developers">Developers</a>
+  </nav>
+
+  <div class="content">
+    <h1>About Epistery Scan</h1>
+    <p>
+      Epistery Scan indexes the signed web &mdash; websites that publish authored,
+      cryptographically signed data via the
+      <a href="https://rootz.global/ai-discovery">AI Discovery Standard</a>.
+    </p>
+    <p>
+      Unlike traditional search engines that scrape and repackage content, Epistery
+      only indexes what organizations have explicitly published and signed. Blockchain
+      provides the trust substrate: signature verification, identity binding, and
+      provenance.
+    </p>
+
+    <h2>How to use Search</h2>
+    <p>
+      Type a keyword, organization name, or domain into the search bar on the
+      <a href="/">home page</a>. Results come from two sources:
+    </p>
+    <ul>
+      <li><strong>Signed Web</strong> &mdash; domains that publish a <code>/.well-known/ai</code> manifest, indexed and verified by Epistery</li>
+      <li><strong>MCP Registry</strong> &mdash; thousands of Model Context Protocol services, searchable by name, category, or capability</li>
+    </ul>
+    <p>
+      Results are labeled with trust badges: <strong>Verified</strong> (signature matches
+      on-chain identity), <strong>Signed</strong> (cryptographically signed but not yet
+      chain-verified), or <strong>Open</strong> (published but unsigned).
+    </p>
+
+    <h2>Delegate to a live service</h2>
+    <p>
+      Prefix your query with <code>@service-name</code> to route it directly to a live
+      MCP service. Epistery picks the best-matching tool on that service and calls it
+      on your behalf. Browse available services on the <a href="/tools">MCP Tools</a> page.
+    </p>
+
+    <h2>Submit your domain</h2>
+    <p>
+      Publish a <code>/.well-known/ai</code> manifest on your domain and enter the
+      domain name in search. Epistery will discover, index, and display it. You can
+      also use the <a href="/discovery">Discovery</a> page to check any domain.
+    </p>
+
+    <h2>Sample queries</h2>
+    <a class="sample-query" href="/?q=blockchain">
+      <span class="label">blockchain</span>
+      <span class="hint">&mdash; find organizations publishing about blockchain technology</span>
+    </a>
+    <a class="sample-query" href="/?q=identity">
+      <span class="label">identity</span>
+      <span class="hint">&mdash; discover identity and authentication services</span>
+    </a>
+    <a class="sample-query" href="/?q=rootz.global">
+      <span class="label">rootz.global</span>
+      <span class="hint">&mdash; look up a specific domain's manifest and trust status</span>
+    </a>
+    <a class="sample-query mcp" href="/?q=@stripe ">
+      <span class="label">@stripe</span>
+      <span class="hint">&mdash; delegate a query to the Stripe MCP service</span>
+    </a>
+    <a class="sample-query mcp" href="/?q=@github ">
+      <span class="label">@github</span>
+      <span class="hint">&mdash; delegate a query to the GitHub MCP service</span>
+    </a>
+    <a class="sample-query" href="/?q=AI Discovery">
+      <span class="label">AI Discovery</span>
+      <span class="hint">&mdash; search indexed concepts across all signed domains</span>
+    </a>
+  </div>
+
+  <div class="footer">
+    <a href="/">Epistery Search</a> &nbsp;&middot;&nbsp;
+    <a href="/.well-known/ai">/.well-known/ai</a>
+  </div>
+
+  <script>
+    document.getElementById('navToggle').addEventListener('click', () => {
+      document.getElementById('navPanel').classList.toggle('open');
+    });
+  </script>
+</body>
+</html>
