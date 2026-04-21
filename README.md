@@ -1,20 +1,26 @@
 # Epistery Scan
 
-Cross-chain blockchain explorer and AI discovery indexer for the Epistery ecosystem.
+Search the signed web. Cross-chain blockchain explorer, AI discovery indexer, and multisite host for the Epistery ecosystem.
 
 **Live at:** https://epistery.io
 
-Epistery Scan indexes two kinds of entities through a unified architecture:
+Epistery Scan indexes three kinds of entities through a unified architecture:
 
 - **Blockchain contracts** on Ethereum and Polygon (Agents, Identity Contracts, Campaign Wallets)
 - **AI Discovery manifests** published at `/.well-known/ai` per the [Rootz AI Discovery Standard](https://rootz.global/ai/standard.md)
+- **MCP services** via federated search to [mcp-registry](https://mcp.epistery.io) (6,000+ services with live tool schemas)
 
-Both are treated as first-class entities. A domain publishing a signed manifest is architecturally equivalent to a blockchain contract -- DNS is the trust substrate instead of a chain.
+Both domain manifests and blockchain contracts are first-class entities. A domain publishing a signed manifest is architecturally equivalent to a blockchain contract -- DNS is the trust substrate instead of a chain.
+
+Scan also acts as a **multisite host**: it owns ports 80/443, provisions TLS via Certify, and spawns child services (like mcp-registry) through the Harness. Incoming requests are routed by hostname -- `epistery.io` hits scan, `mcp.epistery.io` is proxied to the child.
 
 ## Architecture
 
 ```
-index.mjs                         Express server, SSL, route mounting
+index.mjs                         Express server, TLS, Harness, route mounting
+  |
+  +-- lib/Harness.mjs             Child process manager — spawns, health-checks,
+  |                                proxies, and provides query/post fan-out
   |
   +-- db/Database.mjs             MongoDB layer (entities, events, monitors, domains, transactions)
   |
@@ -31,11 +37,12 @@ index.mjs                         Express server, SSL, route mounting
   |           AIDiscoveryInterpreter.mjs        Web manifests via DomainDiscovery
   |
   +-- handlers/
-  |     Search.mjs                Chain-first search (address, tx hash, text/domain)
+  |     Search.mjs                Federated search — signed-web + harness children + @delegation
   |     Monitor.mjs               Add/remove monitored addresses
   |     Event.mjs                 Query, aggregate, timeline events
   |     Fetch.mjs                 On-demand data fetching
   |     Discovery.mjs             Domain submission and listing API
+  |     Feed.mjs                  Activity feed
   |
   +-- public/
         index.html                Main search UI with type-aware rendering
@@ -76,6 +83,36 @@ Registered types:
 - `checkDomain(domain)` -- crawl wrapper around `syncDomain`: manages crawl state (`lastChecked`, `nextCheck`, `status`) and triggers domain discovery from manifest links.
 - `seedKnownDomains()`, `discoverFromAgents()`, `discoverDomains()` -- populate the domain crawl queue.
 
+### Harness (Multisite Host)
+
+`Harness` manages child processes that serve hostname-routed traffic. Configured in `~/.epistery/config.ini`:
+
+```ini
+[harness]
+mcp.epistery.io=/home/.../mcp-registry
+```
+
+Each child is spawned with `UPSTREAM=1` and a sequential port starting at 53900. The harness:
+
+- **Proxies** — incoming requests matching a child's hostname are forwarded transparently (middleware)
+- **Health-checks** — polls `/health` every 30s, marks children healthy/unhealthy
+- **Fan-out GET** — `harness.query(path)` sends a GET to all healthy children in parallel, merges results
+- **Targeted POST** — `harness.post(hostname, path, body)` sends a POST to a specific child (used for MCP delegation)
+- **Graceful shutdown** — SIGTERM with 5s timeout, then SIGKILL
+
+### Federated Search
+
+`Search.mjs` combines multiple data sources in a single query:
+
+1. **Signed web** — MongoDB full-text search across indexed `/.well-known/ai` manifests
+2. **Blockchain** — direct chain lookup for `0x...` addresses
+3. **Harness children** — fan-out GET to mcp-registry and future children, results merged and normalized
+4. **`@service` delegation** — queries starting with `@service-name` are routed to a live MCP endpoint:
+   - Calls mcp-registry's `/api/service/:name/tools` to get the live tool catalog
+   - Picks the best-matching tool via keyword scoring
+   - Calls `/api/service/:name/call` with the tool and query arguments
+   - Returns structured results with delegation metadata
+
 ### Chain Connector
 
 `ChainConnector` normalizes RPC access across chains using ethers v6. Handles chunked event queries with exponential backoff for rate-limited providers (especially Polygon/Infura).
@@ -94,16 +131,20 @@ Registered types:
 
 All endpoints return JSON. No authentication required for read operations.
 
-### Search (chain-first)
+### Search (federated)
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/api/search?q={query}` | GET | Search by address (0x...), tx hash, or text/domain |
-| `/api/search/address/:address?chain=` | GET | Contract or wallet details from chain |
-| `/api/search/tx/:hash?chain=` | GET | Transaction details from chain |
-| `/api/search/events/:address?chain=` | GET | On-chain event log for an address |
+| `/api/search?q={query}` | GET | Federated search: signed-web + harness children + @delegation |
+| `/api/search/entity/:id` | GET | Full details for a specific domain or address |
+| `/api/search/stats` | GET | Index statistics |
+| `/api/search/submit` | POST | Submit domain for indexing `{ domain }` |
 
-Text/domain queries search MongoDB. Address and tx queries go to the chain directly. Domain-like queries trigger on-demand discovery if the domain isn't already indexed. Search results include `schema` from the registry so the UI knows how to render each entity type.
+Query types:
+- **`0x...` address** — direct blockchain lookup
+- **`domain.name`** — direct MongoDB lookup, triggers discovery if unknown
+- **`keyword`** — full-text search across signed-web manifests + fan-out to mcp-registry
+- **`@service-name query`** — explicit delegation to a live MCP service endpoint
 
 ### Monitors
 
@@ -192,90 +233,47 @@ Epistery Scan understands these event types:
 npm install
 ```
 
-### 2. Configure database (secrets.json)
-```json
-{
-  "contactEmail": "your@email.com",
-  "mongo": {
-    "host": "192.168.1.100",
-    "host_dev": "1.2.3.4",
-    "port": 27017,
-    "database": "epistery-scan",
-    "username": "epistery_user",
-    "password": "your_password"
-  }
-}
-```
+### 2. Configure (`~/.epistery/config.ini`)
 
-**Environment modes:**
-- `PROFILE=PROD` (default) -- uses `mongo.host` (LAN IP)
-- `PROFILE=DEV` -- uses `mongo.host_dev` (public IP for whitelisted machines)
+All configuration via epistery Config module — no `.env` files, no `secrets.json`.
 
-Connection string includes `directConnection=true` to prevent MongoDB driver from hanging on replica set discovery.
-
-Falls back to `mongodb://localhost:27017/epistery-scan` if no secrets file.
-
-### 3. Configure chains (~/.epistery/config)
 ```ini
-[chains.polygon]
-enabled=true
-rpcUrl=https://polygon-mainnet.infura.io/v3/YOUR_API_KEY
+[profile]
+email=your@email.com
 
-[chains.ethereum]
-enabled=true
-rpcUrl=https://mainnet.infura.io/v3/YOUR_API_KEY
+[mongo]
+host=10.0.0.112
+port=27017
+database=epistery-scan
+username=epistery_user
+password=your_password
 
-pollInterval = 300000
-discoveryPollInterval = 86400000
+[harness]
+mcp.epistery.io=/opt/mcp-registry
 
 [ingestion]
 autostart=false
 ```
 
-`ingestion.autostart` defaults to `false` so a fresh clone does not automatically
-poll any RPC endpoint. Flip it to `true` on the host that should actually index
-the chain. When disabled, the service still accepts manual ingestion calls via
-the `/api/monitor` and `/api/fetch` endpoints.
+**MongoDB**: Connection from `[mongo]` section. Uses `directConnection=true` to prevent replica set discovery hangs. Falls back to `mongodb://localhost:27017/epistery-scan` if unconfigured.
 
-### 4. Run
+**Harness**: Maps hostnames to child service directories. Each child must have `src/server.js`. Leave empty for standalone operation.
 
-Three modes are supported:
+**Ingestion**: `autostart=false` (default) means no automatic RPC polling. Set `true` on the production host. When disabled, manual ingestion still works via `/api/monitor` and `/api/fetch`.
 
-```bash
-npm start                  # Standalone. HTTPS :443 + HTTP :80 via Certify
-                           # (requires secrets.json.contactEmail)
-PROFILE=DEV npm start      # Standalone, dev mongo host
+**Env vars**: Only `PORT`, `PORTSSL`, and `PROFILE=DEV` are allowed as env vars. Everything else goes in config.ini.
 
-UPSTREAM=1 PORT=3000 npm start
-                           # Behind a reverse-proxy / multisite harness.
-                           # HTTP-only on $PORT. No cert provisioning.
-```
-
-SSL certificates provision automatically via `@metric-im/administrate` in
-standalone mode.
-
-### Running under harness (multisite)
-
-On a machine that hosts more than one site (e.g. `scan.epistery.io`
-alongside `mcp.epistery.io` and sector subdomains), let
-[`rootz/harness`](https://github.com/rootz-global/harness) own :80/:443 and
-spawn scan as a child.
+### 3. Run
 
 ```bash
-# on the harness host:
-ln -s /opt/epistery-scan /opt/harness/sites/scan.epistery.io
+npm start                  # Production: HTTPS :443 + HTTP :80 via Certify
+                           # Spawns harness children, provisions TLS
+                           # Requires [profile] email in config.ini
+
+PROFILE=DEV npm start      # Dev: HTTP :3000, no TLS, no harness children
 ```
 
-Pass `UPSTREAM=1` to scan via harness's `SITE_ENV`:
-
-```bash
-SITE_ENV='{"scan.epistery.io":{"UPSTREAM":"1"}}' \
-  node /opt/harness/index.mjs
-```
-
-Scan will bind HTTP-only on the port harness assigns, skip its own
-Certify pipeline, and respond on `/health` so harness can keep the child
-alive.
+In production, scan **is** the multisite host. It owns :80/:443, provisions TLS via Certify, and spawns child services (mcp-registry) through its built-in Harness. No external reverse proxy needed.
 
 ## Tech Stack
 
@@ -292,18 +290,20 @@ alive.
 
 | File | Purpose |
 |------|---------|
-| `index.mjs` | Server setup, route mounting, SSL |
+| `index.mjs` | Server setup, TLS, Harness bootstrap, route mounting |
+| `lib/Harness.mjs` | Child process manager — spawn, health-check, proxy, query/post |
 | `db/Database.mjs` | All MongoDB operations |
 | `ingestion/EntityTypeRegistry.mjs` | Type-to-interpreter mapping |
 | `ingestion/IngestionManager.mjs` | Poll coordination, registry wiring |
 | `ingestion/ChainConnector.mjs` | Blockchain RPC interface |
 | `ingestion/DomainDiscovery.mjs` | Domain crawling and manifest verification |
 | `ingestion/interpreters/*.mjs` | One interpreter per entity type |
-| `handlers/Search.mjs` | Chain-first search with text fallback |
+| `handlers/Search.mjs` | Federated search with @service delegation |
 | `handlers/Monitor.mjs` | Monitor CRUD, type validation against registry |
 | `handlers/Event.mjs` | Event queries, aggregation, timeline |
 | `handlers/Discovery.mjs` | Domain submission and listing |
 | `handlers/Fetch.mjs` | On-demand chain data fetching |
+| `handlers/Feed.mjs` | Activity feed |
 | `public/index.html` | Search UI with type-aware tab rendering |
 | `public/discovery.html` | AI Discovery browser |
 

@@ -103,10 +103,17 @@ export default class SearchHandler {
   }
 
   /**
-   * Search — knowledge first, chain second, federated across harness children
+   * Search — knowledge first, chain second, federated across harness children.
+   * Queries starting with @service-name delegate to a live MCP service.
    */
   async search(query, limit = 20) {
     const q = query.trim();
+
+    // Explicit MCP delegation: @service-name <query>
+    const delegateMatch = q.match(/^@(\S+)\s*(.*)/);
+    if (delegateMatch && this.harness) {
+      return this._delegateToService(delegateMatch[1], delegateMatch[2].trim(), limit);
+    }
     const results = {
       query: q,
       results: [],
@@ -225,6 +232,102 @@ export default class SearchHandler {
     }
 
     results.meta.total = results.results.length;
+  }
+
+  /**
+   * Delegate query to a live MCP service via mcp-registry proxy.
+   * 1. Fetch live tools for the service
+   * 2. Pick best-matching tool from the query text
+   * 3. Call the tool and return results
+   */
+  async _delegateToService(serviceName, queryText, limit) {
+    const MCP_HOST = 'mcp.epistery.io';
+
+    // Get live tool list
+    const toolsResp = await this.harness.post(
+      MCP_HOST,
+      `/api/service/${encodeURIComponent(serviceName)}/tools`,
+      {}
+    );
+
+    if (!toolsResp || toolsResp.data?.error) {
+      return {
+        query: `@${serviceName} ${queryText}`,
+        results: [],
+        meta: {
+          total: 0,
+          sources: [MCP_HOST],
+          error: toolsResp?.data?.error || 'Service unreachable',
+          delegation: { service: serviceName, status: 'failed' }
+        }
+      };
+    }
+
+    const tools = toolsResp.data.tools || [];
+    if (!tools.length) {
+      return {
+        query: `@${serviceName} ${queryText}`,
+        results: [],
+        meta: {
+          total: 0,
+          sources: [MCP_HOST],
+          delegation: { service: serviceName, status: 'no_tools', endpoint_status: toolsResp.data.status }
+        }
+      };
+    }
+
+    // Pick the best-matching tool: keyword match against tool name + description
+    const tool = this._pickTool(tools, queryText);
+
+    // Call the tool
+    const callResp = await this.harness.post(
+      MCP_HOST,
+      `/api/service/${encodeURIComponent(serviceName)}/call`,
+      { tool: tool.name, arguments: queryText ? { query: queryText } : {} }
+    );
+
+    const callData = callResp?.data || {};
+
+    return {
+      query: `@${serviceName} ${queryText}`,
+      results: callData.result ? [callData.result] : [],
+      meta: {
+        total: callData.result ? 1 : 0,
+        sources: [MCP_HOST],
+        delegation: {
+          service: serviceName,
+          tool: tool.name,
+          status: callData.status || 'unknown',
+          response_time_ms: callData.response_time_ms,
+          available_tools: tools.map(t => t.name),
+        }
+      }
+    };
+  }
+
+  /**
+   * Pick the best tool from a tools list given query text.
+   * Simple keyword scoring: count how many query words appear in tool name + description.
+   */
+  _pickTool(tools, queryText) {
+    if (!queryText || tools.length === 1) return tools[0];
+
+    const words = queryText.toLowerCase().split(/\s+/);
+    let best = tools[0];
+    let bestScore = -1;
+
+    for (const tool of tools) {
+      const haystack = `${tool.name} ${tool.description || ''}`.toLowerCase();
+      let score = 0;
+      for (const w of words) {
+        if (haystack.includes(w)) score++;
+      }
+      if (score > bestScore) {
+        bestScore = score;
+        best = tool;
+      }
+    }
+    return best;
   }
 
   /**
