@@ -6,62 +6,17 @@
   <title>MCP Tools — Epistery Scan</title>
   <link rel="alternate" type="application/json" href="/api/mcp/categories">
   <link rel="ai-discovery" href="/.well-known/ai">
+  <script src="/static/script/common.js"></script>
+  <script type="module">
+    import Witness from '/.well-known/epistery/lib/witness.js';
+    try {
+      window.Epistery = { witness: await Witness.connect({rootPath:'/.well-known/epistery'}) };
+    } catch(e) {
+      console.warn('[epistery] wallet init:', e.message);
+    }
+  </script>
+  <link rel="stylesheet" href="/static/style/common.css">
   <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      background: #fafafa;
-      color: #333;
-      min-height: 100vh;
-    }
-
-    /* --- Nav menu --- */
-    .nav-toggle {
-      position: fixed;
-      top: 12px;
-      left: 12px;
-      z-index: 1001;
-      background: none;
-      border: none;
-      font-size: 1.5rem;
-      cursor: pointer;
-      color: #2c3e50;
-      padding: 4px 8px;
-      border-radius: 4px;
-    }
-    .nav-toggle:hover { background: #f0f0f0; }
-
-    .nav-panel {
-      position: fixed;
-      top: 0; left: -220px;
-      width: 200px;
-      height: 100vh;
-      background: #fff;
-      border-right: 1px solid #e8e8e8;
-      z-index: 1000;
-      transition: left 0.2s ease;
-      padding: 3.5rem 1rem 1rem;
-      box-shadow: 2px 0 8px rgba(0,0,0,0.05);
-    }
-    .nav-panel.open { left: 0; }
-
-    .nav-panel a {
-      display: block;
-      padding: 0.6rem 0.5rem;
-      color: #2c3e50;
-      text-decoration: none;
-      font-size: 0.95rem;
-      border-radius: 4px;
-    }
-    .nav-panel a:hover { background: #f0f4f8; }
-    .nav-panel a.active { font-weight: 600; color: #7c3aed; }
-    .nav-panel hr {
-      border: none;
-      border-top: 1px solid #e8e8e8;
-      margin: 0.5rem 0.5rem;
-    }
-
     /* --- Page header --- */
     .page-header {
       text-align: center;
@@ -84,7 +39,8 @@
     /* --- Search bar --- */
     .search-wrap {
       display: flex;
-      justify-content: center;
+      flex-direction: column;
+      align-items: center;
       padding: 0 2rem 1.5rem;
     }
 
@@ -146,8 +102,8 @@
     }
 
     .category-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+      display: flex;
+      flex-wrap: wrap;
       gap: 0.75rem;
     }
 
@@ -158,6 +114,7 @@
       padding: 1rem;
       cursor: pointer;
       transition: box-shadow 0.15s, border-color 0.15s;
+      flex: 1 1 180px;
     }
 
     .cat-card:hover {
@@ -167,7 +124,7 @@
 
     .cat-card.expanded {
       border-color: #7c3aed;
-      grid-column: 1 / -1;
+      flex-basis: 100%;
     }
 
     .cat-name {
@@ -290,68 +247,59 @@
       color: #e65100;
       font-size: 0.9rem;
     }
-
-    /* --- Footer --- */
-    .footer {
-      text-align: center;
-      padding: 2rem;
-      font-size: 0.8rem;
-      color: #bbb;
-    }
-
-    .footer a {
-      color: #999;
-      text-decoration: none;
-    }
-
-    .footer a:hover { text-decoration: underline; }
   </style>
 </head>
 <body>
-  <button class="nav-toggle" id="navToggle" aria-label="Menu">&#9776;</button>
-  <nav class="nav-panel open" id="navPanel">
-    <a href="/">Search</a>
-    <a href="/discovery">Discovery</a>
-    <a href="/tools" class="active">MCP Tools</a>
-    <hr>
-    <a href="/about">About</a>
-    <a href="/developers">Developers</a>
-  </nav>
-
-  <div class="page-header">
-    <h1>MCP Tools</h1>
-    <p class="subtitle">Browse and query Model Context Protocol services</p>
-  </div>
-
-  <div class="search-wrap">
-    <div class="search-bar">
-      <input type="text" id="searchInput"
-             placeholder="Search MCP services..."
-             autocomplete="off"
-             spellcheck="false">
-      <button id="searchBtn" aria-label="Search">&#x2192;</button>
+  <div id="navigation" class="fragment" data-path="navigation.html"></div>
+  <div class="container">
+    <div class="page-header">
+      <h1>MCP Tools</h1>
+      <p class="subtitle">Browse and query Model Context Protocol services</p>
     </div>
-  </div>
 
-  <div class="stats-line" id="statsLine"></div>
+    <div class="search-wrap">
+      <div class="search-bar">
+        <input type="text" id="searchInput"
+               placeholder="Search MCP services..."
+               autocomplete="off"
+               spellcheck="false">
+        <button id="searchBtn" aria-label="Search">&#x2192;</button>
+      </div>
+      <div class="search-help" id="searchHelp">
+        <div class="search-help-toggle" onclick="toggleHelp()">
+          <span class="help-icon">?</span> help using this feature
+        </div>
+        <div class="search-help-body">
+          <dl class="search-help-content">
+            <dt>Search services</dt>
+            <dd>Type a name, keyword, or capability to find MCP services</dd>
+            <dt>Browse categories</dt>
+            <dd>Click any category card below to expand and see its services</dd>
+            <dt>Delegate a query</dt>
+            <dd>Click a service to jump to search with <code>@service-name</code> and route your query directly to it</dd>
+            <dt>Badges</dt>
+            <dd><strong>Live</strong> = reachable now &middot; <strong>Offline</strong> = not responding &middot; tool count shows available endpoints</dd>
+          </dl>
+        </div>
+      </div>
+    </div>
 
-  <div class="unavailable" id="unavailable" style="display:none">
-    MCP Registry unavailable &mdash; running in dev mode without harness.
-  </div>
+    <div class="stats-line" id="statsLine"></div>
 
-  <div class="grid-wrap" id="gridWrap">
-    <div class="category-grid" id="categoryGrid"></div>
-  </div>
+    <div class="unavailable" id="unavailable" style="display:none">
+      MCP Registry unavailable &mdash; running in dev mode without harness.
+    </div>
 
-  <div class="search-results" id="searchResults">
-    <div class="result-count" id="searchCount"></div>
-    <div id="searchList"></div>
-  </div>
+    <div class="grid-wrap" id="gridWrap">
+      <div class="category-grid" id="categoryGrid"></div>
+    </div>
 
-  <div class="footer">
-    <a href="/">Epistery Search</a> &nbsp;&middot;&nbsp;
-    <a href="/.well-known/ai">/.well-known/ai</a> &nbsp;&middot;&nbsp;
-    <a href="https://rootz.global/ai-discovery">AI Discovery Standard</a>
+    <div class="search-results" id="searchResults">
+      <div class="result-count" id="searchCount"></div>
+      <div id="searchList"></div>
+    </div>
+
+    <div id="footer" class="fragment" data-path="footer.html"></div>
   </div>
 
   <script>
@@ -368,11 +316,6 @@
     let categories = [];
     let expandedSlug = null;
     let debounceTimer = null;
-
-    // Nav menu
-    document.getElementById('navToggle').addEventListener('click', () => {
-      document.getElementById('navPanel').classList.toggle('open');
-    });
 
     // --- Load categories on page load ---
     async function loadCategories() {
@@ -408,10 +351,10 @@
         const count = cat.count || cat.service_count || 0;
         const isExpanded = expandedSlug === slug;
         return `
-          <div class="cat-card${isExpanded ? ' expanded' : ''}" data-slug="${esc(slug)}" onclick="toggleCategory('${esc(slug)}')">
-            <div class="cat-name">${esc(name)}</div>
+          <div class="cat-card${isExpanded ? ' expanded' : ''}" data-slug="${escapeHtml(slug)}" onclick="toggleCategory('${escapeHtml(slug)}')">
+            <div class="cat-name">${escapeHtml(name)}</div>
             <div class="cat-count">${count} service${count === 1 ? '' : 's'}</div>
-            ${isExpanded ? '<div class="service-list" id="svc-' + esc(slug) + '"><div style="color:#999;font-size:0.85rem;">Loading...</div></div>' : ''}
+            ${isExpanded ? '<div class="service-list" id="svc-' + escapeHtml(slug) + '"><div style="color:#999;font-size:0.85rem;">Loading...</div></div>' : ''}
           </div>
         `;
       }).join('');
@@ -449,7 +392,7 @@
 
         listEl.innerHTML = services.map(svc => renderServiceItem(svc)).join('');
       } catch (err) {
-        listEl.innerHTML = `<div style="color:#c62828;font-size:0.85rem;">Error: ${esc(err.message)}</div>`;
+        listEl.innerHTML = `<div style="color:#c62828;font-size:0.85rem;">Error: ${escapeHtml(err.message)}</div>`;
       }
     }
 
@@ -467,9 +410,9 @@
           : '';
 
       return `
-        <div class="service-item" onclick="delegateToService('${esc(name)}')">
-          <span class="svc-name">${esc(name)}</span>
-          <span class="svc-desc">${esc(truncate(desc, 80))}</span>
+        <div class="service-item" onclick="delegateToService('${escapeHtml(name)}')">
+          <span class="svc-name">${escapeHtml(name)}</span>
+          <span class="svc-desc">${escapeHtml(truncate(desc, 80))}</span>
           <span class="svc-badges">${toolsBadge}${statusBadge}</span>
         </div>
       `;
@@ -505,6 +448,7 @@
 
     async function doSearch(q) {
       if (!q) return;
+      collapseHelp();
 
       gridWrap.style.display = 'none';
       searchResults.style.display = 'block';
@@ -522,7 +466,7 @@
 
         if (!services.length) {
           searchCount.textContent = '';
-          searchList.innerHTML = `<div style="text-align:center;padding:2rem;color:#999;">No MCP services found for "${esc(q)}"</div>`;
+          searchList.innerHTML = `<div style="text-align:center;padding:2rem;color:#999;">No MCP services found for "${escapeHtml(q)}"</div>`;
           return;
         }
 
@@ -538,22 +482,14 @@
 
         let html = '';
         for (const [cat, svcs] of Object.entries(groups)) {
-          html += `<div class="search-group-title">${esc(cat)}</div>`;
+          html += `<div class="search-group-title">${escapeHtml(cat)}</div>`;
           svcs.sort((a, b) => (b.tools_count || 0) - (a.tools_count || 0));
           html += svcs.map(svc => renderServiceItem(svc)).join('');
         }
         searchList.innerHTML = html;
       } catch (err) {
-        searchList.innerHTML = `<div style="text-align:center;padding:1rem;color:#c62828;">Search error: ${esc(err.message)}</div>`;
+        searchList.innerHTML = `<div style="text-align:center;padding:1rem;color:#c62828;">Search error: ${escapeHtml(err.message)}</div>`;
       }
-    }
-
-    // --- Utilities ---
-    function esc(str) {
-      if (!str) return '';
-      const div = document.createElement('div');
-      div.textContent = str;
-      return div.innerHTML;
     }
 
     function truncate(str, len) {

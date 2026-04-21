@@ -5,115 +5,61 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Developers — Epistery Scan</title>
   <link rel="ai-discovery" href="/.well-known/ai">
+  <script src="/static/script/common.js"></script>
+  <script type="module">
+    import Witness from '/.well-known/epistery/lib/witness.js';
+    try {
+      window.Epistery = { witness: await Witness.connect({rootPath:'/.well-known/epistery'}) };
+    } catch(e) {
+      console.warn('[epistery] wallet init:', e.message);
+    }
+  </script>
+  <link rel="stylesheet" href="/static/style/common.css">
   <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      background: #fafafa;
-      color: #333;
-      min-height: 100vh;
-    }
-    .nav-toggle {
-      position: fixed; top: 12px; left: 12px; z-index: 1001;
-      background: none; border: none; font-size: 1.5rem; cursor: pointer;
-      color: #2c3e50; padding: 4px 8px; border-radius: 4px;
-    }
-    .nav-toggle:hover { background: #f0f0f0; }
-    .nav-panel {
-      position: fixed; top: 0; left: -220px; width: 200px; height: 100vh;
-      background: #fff; border-right: 1px solid #e8e8e8; z-index: 1000;
-      transition: left 0.2s ease; padding: 3.5rem 1rem 1rem;
-      box-shadow: 2px 0 8px rgba(0,0,0,0.05);
-    }
-    .nav-panel.open { left: 0; }
-    .nav-panel a {
-      display: block; padding: 0.6rem 0.5rem; color: #2c3e50;
-      text-decoration: none; font-size: 0.95rem; border-radius: 4px;
-    }
-    .nav-panel a:hover { background: #f0f4f8; }
-    .nav-panel a.active { font-weight: 600; color: #3498db; }
-    .nav-panel hr {
-      border: none;
-      border-top: 1px solid #e8e8e8;
-      margin: 0.5rem 0.5rem;
-    }
-    .content {
-      max-width: 640px; margin: 0 auto; padding: 4rem 2rem 3rem;
-    }
-    .content h1 { font-size: 2rem; font-weight: 300; color: #2c3e50; margin-bottom: 1.5rem; }
-    .content h2 { font-size: 1.2rem; font-weight: 600; color: #2c3e50; margin: 1.5rem 0 0.5rem; }
-    .content p { line-height: 1.7; margin-bottom: 1rem; color: #555; }
-    .content code {
-      background: #f0f0f0; padding: 0.15rem 0.4rem; border-radius: 3px; font-size: 0.9rem;
-    }
-    .content a { color: #3498db; text-decoration: none; }
-    .content a:hover { text-decoration: underline; }
     .endpoint {
       background: #fff; border: 1px solid #e8e8e8; border-radius: 6px;
       padding: 0.75rem 1rem; margin-bottom: 0.5rem; font-size: 0.9rem;
     }
     .endpoint strong { color: #2c3e50; }
     .endpoint span { color: #888; }
-    .footer {
-      text-align: center; padding: 2rem; font-size: 0.8rem; color: #bbb;
-    }
-    .footer a { color: #999; text-decoration: none; }
-    .footer a:hover { text-decoration: underline; }
   </style>
 </head>
 <body>
-  <button class="nav-toggle" id="navToggle" aria-label="Menu">&#9776;</button>
-  <nav class="nav-panel open" id="navPanel">
-    <a href="/">Search</a>
-    <a href="/discovery">Discovery</a>
-    <a href="/tools">MCP Tools</a>
-    <hr>
-    <a href="/about">About</a>
-    <a href="/developers" class="active">Developers</a>
-  </nav>
+  <div id="navigation" class="fragment" data-path="navigation.html"></div>
+  <div class="container">
+    <div class="content">
+      <h1>Developers</h1>
+      <p>
+        Epistery Scan exposes a JSON API for AI agents and developers. Every page
+        also supports content negotiation &mdash; send <code>Accept: application/json</code>
+        to get JSON from any URL.
+      </p>
 
-  <div class="content">
-    <h1>Developers</h1>
-    <p>
-      Epistery Scan exposes a JSON API for AI agents and developers. Every page
-      also supports content negotiation &mdash; send <code>Accept: application/json</code>
-      to get JSON from any URL.
-    </p>
+      <h2>AI Discovery</h2>
+      <div class="endpoint"><strong>GET</strong> <code>/.well-known/ai</code> <span>&mdash; machine-readable manifest</span></div>
 
-    <h2>AI Discovery</h2>
-    <div class="endpoint"><strong>GET</strong> <code>/.well-known/ai</code> <span>&mdash; machine-readable manifest</span></div>
+      <h2>Search</h2>
+      <div class="endpoint"><strong>GET</strong> <code>/api/search?q={query}</code> <span>&mdash; knowledge search</span></div>
+      <div class="endpoint"><strong>GET</strong> <code>/api/search/stats</code> <span>&mdash; index statistics</span></div>
+      <div class="endpoint"><strong>POST</strong> <code>/api/search/submit</code> <span>&mdash; submit a domain</span></div>
 
-    <h2>Search</h2>
-    <div class="endpoint"><strong>GET</strong> <code>/api/search?q={query}</code> <span>&mdash; knowledge search</span></div>
-    <div class="endpoint"><strong>GET</strong> <code>/api/search/stats</code> <span>&mdash; index statistics</span></div>
-    <div class="endpoint"><strong>POST</strong> <code>/api/search/submit</code> <span>&mdash; submit a domain</span></div>
+      <h2>Discovery</h2>
+      <div class="endpoint"><strong>GET</strong> <code>/api/discovery</code> <span>&mdash; list indexed domains</span></div>
+      <div class="endpoint"><strong>POST</strong> <code>/api/discovery</code> <span>&mdash; check a domain</span></div>
 
-    <h2>Discovery</h2>
-    <div class="endpoint"><strong>GET</strong> <code>/api/discovery</code> <span>&mdash; list indexed domains</span></div>
-    <div class="endpoint"><strong>POST</strong> <code>/api/discovery</code> <span>&mdash; check a domain</span></div>
+      <h2>Feed</h2>
+      <div class="endpoint"><strong>GET</strong> <code>/api/feed</code> <span>&mdash; recent changes</span></div>
 
-    <h2>Feed</h2>
-    <div class="endpoint"><strong>GET</strong> <code>/api/feed</code> <span>&mdash; recent changes</span></div>
+      <h2>MCP Registry</h2>
+      <div class="endpoint"><strong>GET</strong> <code>/api/mcp/categories</code> <span>&mdash; service categories</span></div>
+      <div class="endpoint"><strong>GET</strong> <code>/api/mcp/search?q={query}</code> <span>&mdash; search MCP services</span></div>
+      <div class="endpoint"><strong>GET</strong> <code>/api/mcp/service/{name}</code> <span>&mdash; service detail</span></div>
 
-    <h2>MCP Registry</h2>
-    <div class="endpoint"><strong>GET</strong> <code>/api/mcp/categories</code> <span>&mdash; service categories</span></div>
-    <div class="endpoint"><strong>GET</strong> <code>/api/mcp/search?q={query}</code> <span>&mdash; search MCP services</span></div>
-    <div class="endpoint"><strong>GET</strong> <code>/api/mcp/service/{name}</code> <span>&mdash; service detail</span></div>
-
-    <p style="margin-top:1.5rem">
-      Full details in the <a href="/.well-known/ai">AI Discovery manifest</a>.
-    </p>
+      <p style="margin-top:1.5rem">
+        Full details in the <a href="/.well-known/ai">AI Discovery manifest</a>.
+      </p>
+    </div>
+    <div id="footer" class="fragment" data-path="footer.html"></div>
   </div>
-
-  <div class="footer">
-    <a href="/">Epistery Search</a> &nbsp;&middot;&nbsp;
-    <a href="/.well-known/ai">/.well-known/ai</a>
-  </div>
-
-  <script>
-    document.getElementById('navToggle').addEventListener('click', () => {
-      document.getElementById('navPanel').classList.toggle('open');
-    });
-  </script>
 </body>
 </html>

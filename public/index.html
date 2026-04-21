@@ -6,6 +6,7 @@
   <title>Epistery — Search the Signed Web</title>
   <link rel="alternate" type="application/json" href="/api/search">
   <link rel="ai-discovery" href="/.well-known/ai">
+  <script src="/static/script/common.js"></script>
   <script type="module">
     import Witness from '/.well-known/epistery/lib/witness.js';
     try {
@@ -14,23 +15,19 @@
       console.warn('[epistery] wallet init:', e.message);
     }
   </script>
+  <link rel="stylesheet" href="/static/style/common.css">
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
 
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      background: #fafafa;
-      color: #333;
-      min-height: 100vh;
-    }
+
 
     /* --- Landing state: centered search --- */
     .landing {
       display: flex;
+      flex: 1 1;
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      min-height: 100vh;
       padding: 2rem;
       transition: all 0.3s ease;
     }
@@ -293,21 +290,6 @@
 
     .claim-link a:hover { text-decoration: underline; }
 
-    /* --- Footer --- */
-    .footer {
-      text-align: center;
-      padding: 2rem;
-      font-size: 0.8rem;
-      color: #bbb;
-    }
-
-    .footer a {
-      color: #999;
-      text-decoration: none;
-    }
-
-    .footer a:hover { text-decoration: underline; }
-
     /* --- Empty state --- */
     .no-results {
       text-align: center;
@@ -364,97 +346,58 @@
       font-weight: 600;
       margin-left: 0.35rem;
     }
-
-    /* --- Nav menu --- */
-    .nav-toggle {
-      position: fixed;
-      top: 12px;
-      left: 12px;
-      z-index: 1001;
-      background: none;
-      border: none;
-      font-size: 1.5rem;
-      cursor: pointer;
-      color: #2c3e50;
-      padding: 4px 8px;
-      border-radius: 4px;
-    }
-    .nav-toggle:hover { background: #f0f0f0; }
-
-    .nav-panel {
-      position: fixed;
-      top: 0; left: -220px;
-      width: 200px;
-      height: 100vh;
-      background: #fff;
-      border-right: 1px solid #e8e8e8;
-      z-index: 1000;
-      transition: left 0.2s ease;
-      padding: 3.5rem 1rem 1rem;
-      box-shadow: 2px 0 8px rgba(0,0,0,0.05);
-    }
-    .nav-panel.open { left: 0; }
-
-    .nav-panel a {
-      display: block;
-      padding: 0.6rem 0.5rem;
-      color: #2c3e50;
-      text-decoration: none;
-      font-size: 0.95rem;
-      border-radius: 4px;
-    }
-    .nav-panel a:hover { background: #f0f4f8; }
-    .nav-panel a.active { font-weight: 600; color: #3498db; }
-    .nav-panel hr {
-      border: none;
-      border-top: 1px solid #e8e8e8;
-      margin: 0.5rem 0.5rem;
-    }
   </style>
 </head>
 <body>
-  <button class="nav-toggle" id="navToggle" aria-label="Menu">&#9776;</button>
-  <nav class="nav-panel open" id="navPanel">
-    <a href="/" class="active">Search</a>
-    <a href="/discovery">Discovery</a>
-    <a href="/tools">MCP Tools</a>
-    <hr>
-    <a href="/about">About</a>
-    <a href="/developers">Developers</a>
-  </nav>
+  <div id="navigation" class="fragment" data-path="navigation.html"></div>
+  <div class="container">
+    <div id="landing" class="landing">
+      <div class="logo">
+        <h1>epistery</h1>
+        <p class="subtitle">Search the signed web</p>
+      </div>
 
-  <div class="landing" id="landing">
-    <div class="logo">
-      <h1>epistery</h1>
-      <p class="subtitle">Search the signed web</p>
+      <div class="search-bar">
+        <input type="text" id="searchInput"
+               placeholder="Search authored knowledge..."
+               autocomplete="off"
+               spellcheck="false">
+        <button id="searchBtn" aria-label="Search">&#x2192;</button>
+      </div>
+
+      <div class="search-help" id="searchHelp">
+        <div class="search-help-toggle" onclick="toggleHelp()">
+          <span class="help-icon">?</span> help using this feature
+        </div>
+        <div class="search-help-body">
+          <dl class="search-help-content">
+            <dt>Keyword search</dt>
+            <dd>Type any keyword or organization name to search the signed web</dd>
+            <dt>Domain lookup</dt>
+            <dd>Enter a domain like <code>rootz.global</code> to check its manifest and trust status</dd>
+            <dt>Delegate to MCP</dt>
+            <dd>Prefix with <code>@service-name</code> to route your query to a live MCP service (e.g. <code>@stripe</code>)</dd>
+            <dt>Sources</dt>
+            <dd>Results come from signed web domains and MCP registries, labeled Verified, Signed, or Open</dd>
+          </dl>
+        </div>
+      </div>
+
+      <div class="stats" id="stats"></div>
+      <div class="submit-line">
+        Publish <code>/.well-known/ai</code> to be indexed &mdash;
+        <a id="submitLink">submit a domain</a>
+      </div>
+
+      <div class="discovering" id="discovering"></div>
+
+      <div class="results-area" id="resultsArea">
+        <div class="result-count" id="resultCount"></div>
+        <div id="resultsList"></div>
+      </div>
+
     </div>
-
-    <div class="search-bar">
-      <input type="text" id="searchInput"
-             placeholder="Search authored knowledge..."
-             autocomplete="off"
-             spellcheck="false">
-      <button id="searchBtn" aria-label="Search">&#x2192;</button>
-    </div>
-
-    <div class="stats" id="stats"></div>
-    <div class="submit-line">
-      Publish <code>/.well-known/ai</code> to be indexed &mdash;
-      <a id="submitLink">submit a domain</a>
-    </div>
-
-    <div class="discovering" id="discovering"></div>
-
-    <div class="results-area" id="resultsArea">
-      <div class="result-count" id="resultCount"></div>
-      <div id="resultsList"></div>
-    </div>
-  </div>
-
-  <div class="footer">
-    <a href="/.well-known/ai">/.well-known/ai</a> &nbsp;&middot;&nbsp;
-    Authored, not scraped &nbsp;&middot;&nbsp;
-    <a href="https://rootz.global/ai-discovery">AI Discovery Standard</a>
+    <div id="footer" class="fragment" data-path="footer.html"></div>
   </div>
 
   <script>
@@ -498,6 +441,7 @@
     async function doSearch() {
       const q = input.value.trim();
       if (!q) return;
+      collapseHelp();
 
       // Update URL without reload
       const url = new URL(window.location);
@@ -669,11 +613,6 @@
       div.textContent = str;
       return div.innerHTML;
     }
-
-    // Nav menu toggle
-    document.getElementById('navToggle').addEventListener('click', () => {
-      document.getElementById('navPanel').classList.toggle('open');
-    });
 
     // Handle back/forward
     window.addEventListener('popstate', () => {

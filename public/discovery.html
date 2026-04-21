@@ -6,23 +6,24 @@
   <title>AI Discovery — Epistery Scan</title>
   <link rel="alternate" type="application/json" href="/api/discovery">
   <link rel="ai-discovery" href="/.well-known/ai">
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      background: #fafafa;
-      color: #333;
-      min-height: 100vh;
+  <script src="/static/script/common.js"></script>
+  <script type="module">
+    import Witness from '/.well-known/epistery/lib/witness.js';
+    try {
+      window.Epistery = { witness: await Witness.connect({rootPath:'/.well-known/epistery'}) };
+    } catch(e) {
+      console.warn('[epistery] wallet init:', e.message);
     }
-
+  </script>
+  <link rel="stylesheet" href="/static/style/common.css">
+  <style>
     /* --- Landing state: centered search --- */
     .landing {
       display: flex;
+      flex: 1 1;
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      min-height: 100vh;
       padding: 2rem;
       transition: all 0.3s ease;
     }
@@ -59,7 +60,7 @@
       display: none;
     }
 
-    /* --- Search bar (from index.html) --- */
+    /* --- Search bar --- */
     .search-bar {
       width: 100%;
       max-width: 640px;
@@ -322,21 +323,6 @@
 
     .result-notfound .result-name { color: #999; }
 
-    /* --- Footer --- */
-    .footer {
-      text-align: center;
-      padding: 2rem;
-      font-size: 0.8rem;
-      color: #bbb;
-    }
-
-    .footer a {
-      color: #999;
-      text-decoration: none;
-    }
-
-    .footer a:hover { text-decoration: underline; }
-
     /* --- No results --- */
     .no-results {
       text-align: center;
@@ -360,97 +346,57 @@
       border-radius: 3px;
       font-size: 0.85rem;
     }
-
-    /* --- Nav menu --- */
-    .nav-toggle {
-      position: fixed;
-      top: 12px;
-      left: 12px;
-      z-index: 1001;
-      background: none;
-      border: none;
-      font-size: 1.5rem;
-      cursor: pointer;
-      color: #2c3e50;
-      padding: 4px 8px;
-      border-radius: 4px;
-    }
-    .nav-toggle:hover { background: #f0f0f0; }
-
-    .nav-panel {
-      position: fixed;
-      top: 0; left: -220px;
-      width: 200px;
-      height: 100vh;
-      background: #fff;
-      border-right: 1px solid #e8e8e8;
-      z-index: 1000;
-      transition: left 0.2s ease;
-      padding: 3.5rem 1rem 1rem;
-      box-shadow: 2px 0 8px rgba(0,0,0,0.05);
-    }
-    .nav-panel.open { left: 0; }
-
-    .nav-panel a {
-      display: block;
-      padding: 0.6rem 0.5rem;
-      color: #2c3e50;
-      text-decoration: none;
-      font-size: 0.95rem;
-      border-radius: 4px;
-    }
-    .nav-panel a:hover { background: #f0f4f8; }
-    .nav-panel a.active { font-weight: 600; color: #3498db; }
-    .nav-panel hr {
-      border: none;
-      border-top: 1px solid #e8e8e8;
-      margin: 0.5rem 0.5rem;
-    }
   </style>
 </head>
 <body>
-  <button class="nav-toggle" id="navToggle" aria-label="Menu">&#9776;</button>
-  <nav class="nav-panel open" id="navPanel">
-    <a href="/">Search</a>
-    <a href="/discovery" class="active">Discovery</a>
-    <a href="/tools">MCP Tools</a>
-    <hr>
-    <a href="/about">About</a>
-    <a href="/developers">Developers</a>
-  </nav>
+  <div id="navigation" class="fragment" data-path="navigation.html"></div>
+  <div class="container">
+    <div class="landing" id="landing">
+      <div class="logo">
+        <h1>AI Discovery</h1>
+        <p class="subtitle">Search and explore the signed web</p>
+      </div>
 
-  <div class="landing" id="landing">
-    <div class="logo">
-      <h1>AI Discovery</h1>
-      <p class="subtitle">Search and explore the signed web</p>
+      <div class="search-bar">
+        <input type="text" id="searchInput"
+               placeholder="Search domains, keywords, or enter a domain..."
+               autocomplete="off"
+               spellcheck="false">
+        <button id="searchBtn" aria-label="Search">&#x2192;</button>
+      </div>
+
+      <div class="search-help" id="searchHelp">
+        <div class="search-help-toggle" onclick="toggleHelp()">
+          <span class="help-icon">?</span> help using this feature
+        </div>
+        <div class="search-help-body">
+          <dl class="search-help-content">
+            <dt>Search indexed domains</dt>
+            <dd>Type a keyword or name to search all indexed signed-web domains</dd>
+            <dt>Check a domain</dt>
+            <dd>Enter a domain like <code>example.com</code> &mdash; if it isn't indexed, we'll check for a <code>/.well-known/ai</code> manifest</dd>
+            <dt>View Manifest</dt>
+            <dd>Click "View Manifest" on any result to inspect the raw AI discovery JSON</dd>
+            <dt>Add to Index</dt>
+            <dd>Found a new domain? Click "Add to Index" to register it with Epistery</dd>
+          </dl>
+        </div>
+      </div>
+
+      <div class="stats" id="stats"></div>
+      <div class="submit-line">
+        Publish <code>/.well-known/ai</code> to be indexed &mdash;
+        <a href="https://rootz.global/ai-discovery">learn how</a>
+        &nbsp;&middot;&nbsp;
+        <a href="/">back to search</a>
+      </div>
+
+      <div class="results-area" id="resultsArea">
+        <div class="result-count" id="resultCount"></div>
+        <div id="resultsList"></div>
+      </div>
     </div>
-
-    <div class="search-bar">
-      <input type="text" id="searchInput"
-             placeholder="Search domains, keywords, or enter a domain..."
-             autocomplete="off"
-             spellcheck="false">
-      <button id="searchBtn" aria-label="Search">&#x2192;</button>
-    </div>
-
-    <div class="stats" id="stats"></div>
-    <div class="submit-line">
-      Publish <code>/.well-known/ai</code> to be indexed &mdash;
-      <a href="https://rootz.global/ai-discovery">learn how</a>
-      &nbsp;&middot;&nbsp;
-      <a href="/">back to search</a>
-    </div>
-
-    <div class="results-area" id="resultsArea">
-      <div class="result-count" id="resultCount"></div>
-      <div id="resultsList"></div>
-    </div>
-  </div>
-
-  <div class="footer">
-    <a href="/">Epistery Search</a> &nbsp;&middot;&nbsp;
-    <a href="/.well-known/ai">/.well-known/ai</a> &nbsp;&middot;&nbsp;
-    <a href="https://rootz.global/ai-discovery">AI Discovery Standard</a>
+    <div id="footer" class="fragment" data-path="footer.html"></div>
   </div>
 
   <script>
@@ -509,6 +455,7 @@
     // --- Search ---
     async function doSearch(q) {
       if (!q) return;
+      collapseHelp();
 
       // Update URL
       const url = new URL(window.location);
@@ -600,7 +547,7 @@
       }
     }
 
-    // --- Render search result card (from index.html pattern) ---
+    // --- Render search result card ---
     function renderResult(r) {
       const trustBadge = r.signature?.verified
         ? '<span class="badge badge-verified">Verified</span>'
@@ -804,23 +751,6 @@
         viewer.innerHTML = `<div style="padding:1rem;color:#c0392b;">Error loading manifest: ${escapeHtml(err.message)}</div>`;
       }
     }
-
-    // --- Utility ---
-    function escapeHtml(str) {
-      if (!str) return '';
-      const div = document.createElement('div');
-      div.textContent = str;
-      return div.innerHTML;
-    }
-
-    function escapeAttr(str) {
-      return str.replace(/'/g, "\\'").replace(/"/g, '&quot;');
-    }
-
-    // Nav menu toggle
-    document.getElementById('navToggle').addEventListener('click', () => {
-      document.getElementById('navPanel').classList.toggle('open');
-    });
 
     // --- URL query support ---
     const params = new URLSearchParams(window.location.search);
