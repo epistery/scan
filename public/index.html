@@ -310,6 +310,36 @@
 
     .claim-link a:hover { text-decoration: underline; }
 
+    /* --- Manifest viewer (ACE) --- */
+    .result-actions {
+      margin-top: 0.6rem;
+      display: flex;
+      gap: 0.75rem;
+      align-items: center;
+    }
+
+    .result-actions a {
+      font-size: 0.82rem;
+      color: #3498db;
+      text-decoration: none;
+      cursor: pointer;
+    }
+
+    .result-actions a:hover { text-decoration: underline; }
+
+    .manifest-viewer {
+      margin-top: 0.75rem;
+      border-top: 1px solid #e8e8e8;
+      padding-top: 0.75rem;
+    }
+
+    .manifest-viewer .ace-container {
+      width: 100%;
+      min-height: 350px;
+      border-radius: 4px;
+      overflow: hidden;
+    }
+
     /* --- Empty state --- */
     .no-results {
       text-align: center;
@@ -430,6 +460,10 @@
     const discovering = document.getElementById('discovering');
     const statsEl = document.getElementById('stats');
 
+    let aceEditor = null;
+    let aceLoaded = false;
+    let openManifestDomain = null;
+
     // Load stats on page load
     fetch('/api/search/stats')
       .then(r => r.json())
@@ -474,6 +508,7 @@
       landing.classList.add('has-results');
       resultsArea.style.display = 'block';
       discovering.style.display = 'none';
+      openManifestDomain = null;
       resultsList.innerHTML = '<div style="text-align:center;padding:1rem;color:#999;">Searching...</div>';
       resultCount.textContent = '';
 
@@ -497,6 +532,7 @@
         let countText = `${data.results.length} result${data.results.length === 1 ? '' : 's'} from the signed web`;
         if (registryCount > 0) countText += ` and ${registryCount} registr${registryCount === 1 ? 'y' : 'ies'}`;
         resultCount.textContent = countText;
+        cacheResults(data.results);
         resultsList.innerHTML = data.results.map(renderResult).join('');
       } catch (err) {
         resultsList.innerHTML = `<div class="no-results"><p>Search error: ${err.message}</p></div>`;
@@ -572,8 +608,12 @@
         ? `<div class="claim-link"><a href="https://rootz.global/ai-discovery" target="_blank" rel="noopener">Claim this listing</a> &mdash; add a signature to own your search result</div>`
         : '';
 
+      const entityId = r.domain || r.name;
+      const manifestLink = `<div class="result-actions"><a href="javascript:void(0)" onclick="viewManifest('${escapeAttr(entityId)}')">View Manifest</a></div>`;
+      const cardId = ` id="card-${escapeAttr(entityId)}"`;
+
       return `
-        <div class="result">
+        <div class="result"${cardId}>
           <div class="result-header">
             <span class="result-name">${escapeHtml(r.name)}</span>
             ${domain}
@@ -586,6 +626,7 @@
           ${caps}
           ${meta}
           ${claim}
+          ${manifestLink}
         </div>
       `;
     }
@@ -658,6 +699,78 @@
       const div = document.createElement('div');
       div.textContent = str;
       return div.innerHTML;
+    }
+
+    function escapeAttr(str) {
+      return (str || '').replace(/&/g,'&amp;').replace(/'/g,'&#39;').replace(/"/g,'&quot;');
+    }
+
+    // --- ACE manifest viewer ---
+    // Stores result objects keyed by entity id for ACE display
+    const _resultCache = {};
+    function cacheResults(results) {
+      for (const r of results) {
+        const id = r.domain || r.name;
+        if (id) _resultCache[id] = r;
+      }
+    }
+
+    async function viewManifest(entityId) {
+      // Toggle off if same entity clicked again
+      if (openManifestDomain === entityId) {
+        const existing = document.querySelector('.manifest-viewer');
+        if (existing) existing.remove();
+        openManifestDomain = null;
+        return;
+      }
+
+      // Remove any open viewer
+      const prev = document.querySelector('.manifest-viewer');
+      if (prev) prev.remove();
+
+      const card = document.getElementById('card-' + entityId);
+      if (!card) return;
+
+      const viewer = document.createElement('div');
+      viewer.className = 'manifest-viewer';
+      viewer.innerHTML = '<div style="text-align:center;padding:1rem;color:#999;">Loading...</div>';
+      card.appendChild(viewer);
+      openManifestDomain = entityId;
+
+      try {
+        // Lazy-load ACE
+        if (!aceLoaded) {
+          await new Promise((resolve, reject) => {
+            const s = document.createElement('script');
+            s.src = 'https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.6/ace.min.js';
+            s.onload = resolve;
+            s.onerror = reject;
+            document.head.appendChild(s);
+          });
+          aceLoaded = true;
+        }
+
+        // Use cached result object, or fetch from entity endpoint
+        let data = _resultCache[entityId];
+        if (!data) {
+          const res = await fetch(`/api/search/entity/${encodeURIComponent(entityId)}`);
+          data = await res.json();
+        }
+
+        const aceId = 'ace-' + entityId.replace(/\W/g, '-');
+        viewer.innerHTML = `<div class="ace-container" id="${aceId}"></div>`;
+
+        aceEditor = window.ace.edit(aceId);
+        aceEditor.setTheme('ace/theme/monokai');
+        aceEditor.session.setMode('ace/mode/json');
+        aceEditor.setReadOnly(true);
+        aceEditor.setShowPrintMargin(false);
+        aceEditor.session.setUseWrapMode(true);
+        aceEditor.renderer.setShowGutter(true);
+        aceEditor.setValue(JSON.stringify(data, null, 2), -1);
+      } catch (err) {
+        viewer.innerHTML = `<div style="padding:1rem;color:#c0392b;">Error: ${escapeHtml(err.message)}</div>`;
+      }
     }
 
     // Handle back/forward
