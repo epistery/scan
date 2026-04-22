@@ -1,3 +1,5 @@
+import { computeTrustScore } from '../../lib/Posture.mjs';
+
 /**
  * AgentInterpreter
  *
@@ -89,6 +91,42 @@ export default class AgentInterpreter {
         // No version, that's fine
       }
 
+      // Build trust signals for the Agent
+      const now = new Date();
+      const signals = {
+        contractExists: { present: true, at: now, address }
+      };
+
+      // Check for bidirectional domain binding
+      const identityLinks = metadata.identityLinks || [];
+      if (metadata.domain) {
+        const domainEntity = await this.database.getEntity(metadata.domain);
+        const hasDomainEntity = !!domainEntity && domainEntity.type === 'AIDiscovery';
+        signals.domainBinding = {
+          present: hasDomainEntity,
+          at: now,
+          domain: metadata.domain
+        };
+        if (hasDomainEntity) {
+          // Add reverse link if not already present
+          if (!identityLinks.some(l => l.address === metadata.domain && l.relation === 'domainIdentity')) {
+            identityLinks.push({
+              address: metadata.domain,
+              type: 'AIDiscovery',
+              relation: 'domainIdentity',
+              mutual: true,
+              at: now
+            });
+          }
+        }
+      } else {
+        signals.domainBinding = { present: false, at: now };
+      }
+
+      metadata.signals = signals;
+      metadata.trustScore = computeTrustScore(signals);
+      metadata.identityLinks = identityLinks;
+
       // Save entity
       const entity = await this.database.saveEntity({
         address,
@@ -97,7 +135,7 @@ export default class AgentInterpreter {
         metadata
       });
 
-      console.log(`[interpreter:agent] Synced ${address} on ${chain}`, metadata);
+      console.log(`[interpreter:agent] Synced ${address} on ${chain} (trust: ${metadata.trustScore})`, metadata);
       return entity;
     } catch (error) {
       console.error(`[interpreter:agent] Failed to sync ${address}:`, error.message);

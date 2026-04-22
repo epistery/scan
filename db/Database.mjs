@@ -77,6 +77,9 @@ export default class Database {
     await this.transactions.createIndex({ blockNumber: -1 });
     await this.transactions.createIndex({ timestamp: -1 });
 
+    // Trust score index for posture queries
+    await this.entities.createIndex({ 'metadata.trustScore': 1 });
+
     // Domain indexes (AI discovery crawl state)
     await this.domains.createIndex({ domain: 1 }, { unique: true });
     await this.domains.createIndex({ active: 1 });

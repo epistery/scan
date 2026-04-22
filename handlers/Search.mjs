@@ -1,4 +1,5 @@
 import express from 'express';
+import { summarizeSignals, trustLabel } from '../lib/Posture.mjs';
 
 /**
  * SearchHandler — Knowledge-First Architecture
@@ -372,6 +373,16 @@ export default class SearchHandler {
     const sig = entity.metadata?.verification || entity.metadata?.signature || {};
     const isDiscovery = entity.type === 'AIDiscovery';
 
+    // Trust score: use stored value or derive from old verification fields
+    let trustScore = entity.metadata?.trustScore;
+    if (trustScore == null) {
+      // Fallback for entities that haven't been re-crawled yet
+      trustScore = 0;
+      if (sig.signed || sig.hashValid) trustScore += 25;    // selfSigned + manifest
+      if (sig.hashValid) trustScore += 10;                   // hashValid
+      if (sig.digitalNameMatch) trustScore += 20;            // contractExists
+    }
+
     const result = {
       // Identity
       domain: isDiscovery ? entity.address : (entity.metadata?.domain || null),
@@ -396,7 +407,13 @@ export default class SearchHandler {
       })),
       capabilities: manifest?.capabilities || null,
 
-      // Trust
+      // Trust — new signal-based scoring
+      trustScore,
+      trustLabel: trustLabel(trustScore),
+      signals: summarizeSignals(entity.metadata?.signals),
+      identityLinks: entity.metadata?.identityLinks || [],
+
+      // Trust — backward compat
       signature: {
         signed: sig.signed || sig.hashValid || false,
         verified: (sig.hashValid && sig.digitalNameMatch) || false,
@@ -428,7 +445,7 @@ export default class SearchHandler {
    * Index statistics
    */
   async getStats() {
-    const [domainCount, signedCount, verifiedCount, totalEntities, conceptCount] = await Promise.all([
+    const [domainCount, signedCount, verifiedCount, totalEntities, conceptCount, trustDistribution] = await Promise.all([
       this.db.collection('entities').countDocuments({ type: 'AIDiscovery' }),
       this.db.collection('entities').countDocuments({
         type: 'AIDiscovery',
@@ -446,7 +463,29 @@ export default class SearchHandler {
         { $match: { type: 'AIDiscovery' } },
         { $project: { count: { $size: { $ifNull: ['$metadata.manifest.coreConcepts', []] } } } },
         { $group: { _id: null, total: { $sum: '$count' } } }
-      ]).toArray().then(r => r[0]?.total || 0)
+      ]).toArray().then(r => r[0]?.total || 0),
+      // Trust score distribution across thresholds
+      this.db.collection('entities').aggregate([
+        { $match: { type: 'AIDiscovery' } },
+        { $group: {
+          _id: {
+            $switch: {
+              branches: [
+                { case: { $gte: ['$metadata.trustScore', 75] }, then: 'verified' },
+                { case: { $gte: ['$metadata.trustScore', 50] }, then: 'trusted' },
+                { case: { $gte: ['$metadata.trustScore', 25] }, then: 'claimed' },
+                { case: { $gte: ['$metadata.trustScore', 1] },  then: 'discovered' }
+              ],
+              default: 'open'
+            }
+          },
+          count: { $sum: 1 }
+        }}
+      ]).toArray().then(rows => {
+        const dist = { open: 0, discovered: 0, claimed: 0, trusted: 0, verified: 0 };
+        for (const r of rows) dist[r._id] = r.count;
+        return dist;
+      })
     ]);
 
     return {
@@ -455,6 +494,7 @@ export default class SearchHandler {
       verified: verifiedCount,
       totalEntities,
       concepts: conceptCount,
+      trustDistribution,
       crawling: this.ingestion?.domainDiscovery?.isRunning || false
     };
   }

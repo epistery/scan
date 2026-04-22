@@ -196,9 +196,29 @@
       letter-spacing: 0.03em;
     }
 
-    .badge-verified { background: #c8e6c9; color: #2e7d32; }
-    .badge-signed   { background: #fff9c4; color: #f57f17; }
-    .badge-open     { background: #e3f2fd; color: #1565c0; }
+    .badge-verified   { background: #c8e6c9; color: #2e7d32; }
+    .badge-trusted    { background: #e8f5e9; color: #388e3c; }
+    .badge-claimed    { background: #fff9c4; color: #f57f17; }
+    .badge-discovered { background: #e3f2fd; color: #1565c0; }
+    .badge-signed     { background: #fff9c4; color: #f57f17; }
+    .badge-open       { background: #e3f2fd; color: #1565c0; }
+
+    .signal-dots {
+      display: inline-flex;
+      gap: 3px;
+      margin-left: 0.4rem;
+      vertical-align: middle;
+    }
+
+    .signal-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      display: inline-block;
+    }
+
+    .signal-dot.on  { background: #4caf50; }
+    .signal-dot.off { background: #e0e0e0; }
 
     .result-mission {
       margin-top: 0.5rem;
@@ -418,7 +438,9 @@
       fetch('/api/search/stats')
         .then(r => r.json())
         .then(s => {
-          statsEl.innerHTML = `<span>${s.domains}</span> signed domains &middot; <span>${s.concepts}</span> concepts indexed &middot; <span>${s.verified}</span> verified`;
+          const td = s.trustDistribution || {};
+          const trustedCount = (td.verified || 0) + (td.trusted || 0);
+          statsEl.innerHTML = `<span>${s.domains}</span> signed domains &middot; <span>${s.concepts}</span> concepts indexed &middot; <span>${trustedCount}</span> trusted`;
         })
         .catch(() => {});
     }
@@ -547,13 +569,46 @@
       }
     }
 
+    // --- Trust badge from score ---
+    function getTrustBadge(r) {
+      if (r.trustScore != null) {
+        const score = r.trustScore;
+        if (score >= 75) return '<span class="badge badge-verified">Verified</span>';
+        if (score >= 50) return '<span class="badge badge-trusted">Trusted</span>';
+        if (score >= 25) return '<span class="badge badge-claimed">Claimed</span>';
+        if (score >= 1)  return '<span class="badge badge-discovered">Discovered</span>';
+        return '<span class="badge badge-open">Open</span>';
+      }
+      if (r.signature?.verified) return '<span class="badge badge-verified">Verified</span>';
+      if (r.signature?.signed)   return '<span class="badge badge-signed">Signed</span>';
+      return '<span class="badge badge-open">Open</span>';
+    }
+
+    function renderSignalDots(signals) {
+      if (!signals) return '';
+      const names = ['manifest','selfSigned','hashValid','contractExists','domainBinding','dnsVerified','platform'];
+      const dots = names.map(n => {
+        const on = signals[n]?.present;
+        return `<span class="signal-dot ${on ? 'on' : 'off'}" title="${n}"></span>`;
+      }).join('');
+      return `<span class="signal-dots">${dots}</span>`;
+    }
+
+    // Client-side signal summarizer (mirrors server Posture.summarizeSignals)
+    function summarizeSignals(signals) {
+      if (!signals) return null;
+      const summary = {};
+      for (const [name, signal] of Object.entries(signals)) {
+        if (!signal) continue;
+        summary[name] = { present: !!signal.present, at: signal.at || null };
+      }
+      return summary;
+    }
+
     // --- Render search result card ---
     function renderResult(r) {
-      const trustBadge = r.signature?.verified
-        ? '<span class="badge badge-verified">Verified</span>'
-        : r.signature?.signed
-          ? '<span class="badge badge-signed">Signed</span>'
-          : '<span class="badge badge-open">Open</span>';
+      const trustBadge = getTrustBadge(r);
+      const signalDots = renderSignalDots(r.signals);
 
       const domain = r.domain
         ? `<a class="result-domain" href="https://${escapeHtml(r.domain)}" target="_blank" rel="noopener">${escapeHtml(r.domain)}</a>`
@@ -577,7 +632,8 @@
         ? `<div class="result-meta">${metaParts.join(' &middot; ')}</div>`
         : '';
 
-      const claim = (r.signature && !r.signature.signed && r.domain)
+      const showClaim = r.trustScore != null ? r.trustScore < 25 : (r.signature && !r.signature.signed);
+      const claim = (showClaim && r.domain)
         ? `<div class="claim-link"><a href="https://rootz.global/ai-discovery" target="_blank" rel="noopener">Claim this listing</a> &mdash; add a signature to own your search result</div>`
         : '';
 
@@ -592,7 +648,7 @@
           <div class="result-header">
             <span class="result-name">${escapeHtml(r.name)}</span>
             ${domain}
-            <span class="result-trust">${trustBadge}</span>
+            <span class="result-trust">${trustBadge}${signalDots}</span>
           </div>
           ${mission}
           ${concepts}
@@ -608,17 +664,29 @@
     function renderDiscoveredCard(entity) {
       const manifest = entity.metadata?.manifest || {};
       const org = manifest.organization || {};
-      const verification = entity.metadata?.verification || {};
       const concepts = manifest.coreConcepts || [];
       const capabilities = manifest.capabilities || {};
 
-      const trustBadge = verification.hashValid
-        ? (verification.digitalNameMatch
-          ? '<span class="badge badge-verified">Verified</span>'
-          : '<span class="badge badge-signed">Signed</span>')
-        : verification.signed
-          ? '<span class="badge badge-signed">Signed</span>'
-          : '<span class="badge badge-open">Open</span>';
+      // Use trust score if available
+      const score = entity.metadata?.trustScore;
+      let trustBadge;
+      if (score != null) {
+        if (score >= 75)     trustBadge = '<span class="badge badge-verified">Verified</span>';
+        else if (score >= 50) trustBadge = '<span class="badge badge-trusted">Trusted</span>';
+        else if (score >= 25) trustBadge = '<span class="badge badge-claimed">Claimed</span>';
+        else if (score >= 1)  trustBadge = '<span class="badge badge-discovered">Discovered</span>';
+        else                  trustBadge = '<span class="badge badge-open">Open</span>';
+      } else {
+        const verification = entity.metadata?.verification || {};
+        trustBadge = verification.hashValid
+          ? (verification.digitalNameMatch
+            ? '<span class="badge badge-verified">Verified</span>'
+            : '<span class="badge badge-signed">Signed</span>')
+          : verification.signed
+            ? '<span class="badge badge-signed">Signed</span>'
+            : '<span class="badge badge-open">Open</span>';
+      }
+      const signalDots = renderSignalDots(entity.metadata?.signals ? summarizeSignals(entity.metadata.signals) : null);
 
       const name = org.name || entity.address || 'Unknown';
       const mission = org.description
@@ -640,7 +708,7 @@
           <div class="result-header">
             <span class="result-name">${escapeHtml(name)}</span>
             <a class="result-domain" href="https://${escapeHtml(domain)}" target="_blank" rel="noopener">${escapeHtml(domain)}</a>
-            <span class="result-trust">${trustBadge}</span>
+            <span class="result-trust">${trustBadge}${signalDots}</span>
           </div>
           ${mission}
           ${conceptsHtml}

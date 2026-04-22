@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import dns from 'dns';
+import { computeTrustScore } from '../lib/Posture.mjs';
 
 const dnsResolver = new dns.promises.Resolver();
 
@@ -268,10 +269,31 @@ export default class DomainDiscovery {
       return null;
     }
 
-    // Verify signature if present
-    let verification = null;
-    if (manifest._signature) {
-      verification = await this.verifySignature(manifest);
+    // Collect trust signals
+    const signals = await this.collectSignals(domain, manifest, txtVerification, discoveryMethod);
+    const trustScore = computeTrustScore(signals);
+
+    // Backward-compatible verification object
+    const sig = manifest._signature || {};
+    const verification = {
+      signed: signals.selfSigned?.present || false,
+      hashValid: signals.hashValid?.present || false,
+      digitalNameMatch: signals.domainBinding?.present || signals.contractExists?.present || false,
+      digitalName: sig.digitalName || null,
+      method: sig.method || null,
+      checkedAt: now
+    };
+
+    // Build identity links
+    const identityLinks = [];
+    if (signals.contractExists?.present && sig.digitalName) {
+      identityLinks.push({
+        address: sig.digitalName,
+        type: 'Agent',
+        relation: 'domainContract',
+        mutual: signals.domainBinding?.present || false,
+        at: now
+      });
     }
 
     // Build entity metadata
@@ -311,12 +333,39 @@ export default class DomainDiscovery {
         manifest,
         tiers,
         verification,
+        signals,
+        trustScore,
+        identityLinks,
         discoveryMethod,
         manifestUrl,
         txtVerification,
         domain
       }
     });
+
+    // Write reverse identity links on the Agent entity
+    if (identityLinks.length > 0 && sig.digitalName) {
+      try {
+        const agentEntity = await this.database.getEntity(sig.digitalName);
+        if (agentEntity && agentEntity.type === 'Agent') {
+          const reverseLinks = agentEntity.metadata?.identityLinks || [];
+          // Only add if not already linked
+          if (!reverseLinks.some(l => l.address === domain && l.relation === 'domainIdentity')) {
+            reverseLinks.push({
+              address: domain,
+              type: 'AIDiscovery',
+              relation: 'domainIdentity',
+              mutual: signals.domainBinding?.present || false,
+              at: now
+            });
+            agentEntity.metadata.identityLinks = reverseLinks;
+            await this.database.saveEntity(agentEntity);
+          }
+        }
+      } catch (e) {
+        console.warn(`[discovery] Could not write reverse identity link for ${sig.digitalName}:`, e.message);
+      }
+    }
 
     // Record event
     await this.database.recordEvent({
@@ -328,14 +377,15 @@ export default class DomainDiscovery {
         organization: manifest.organization?.name,
         capabilities: Object.keys(capabilities),
         tiersFound: Object.keys(tiers),
-        signatureValid: verification?.hashValid || false,
+        signatureValid: verification.hashValid,
+        trustScore,
         discoveryMethod,
         manifestUrl,
         txtVerified: txtVerification.hasTxtRecord
       }
     });
 
-    console.log(`[discovery] ${domain}: ${isNew ? 'indexed' : 'updated'} via ${discoveryMethod} (tiers: ${Object.keys(tiers).join(', ')})`);
+    console.log(`[discovery] ${domain}: ${isNew ? 'indexed' : 'updated'} via ${discoveryMethod} (trust: ${trustScore}, tiers: ${Object.keys(tiers).join(', ')})`);
 
     return { entity, manifest };
   }
@@ -433,61 +483,116 @@ export default class DomainDiscovery {
   }
 
   /**
-   * Verify the _signature block of a manifest
-   * 1. Clone manifest, remove _signature
-   * 2. JSON.stringify with sorted keys
-   * 3. SHA-256 hash
-   * 4. Compare with _signature.contentHash
-   * 5. Cross-reference digitalName with known DomainAgent entities
+   * Deep sort keys recursively for canonical JSON form
+   */
+  sortKeys(obj) {
+    if (Array.isArray(obj)) return obj.map(item => this.sortKeys(item));
+    if (obj && typeof obj === 'object') {
+      return Object.keys(obj).sort().reduce((sorted, key) => {
+        sorted[key] = this.sortKeys(obj[key]);
+        return sorted;
+      }, {});
+    }
+    return obj;
+  }
+
+  /**
+   * Verify the _signature block of a manifest (backward compat)
+   * Delegates to collectSignals and maps back to the old shape.
    */
   async verifySignature(manifest) {
-    const result = {
-      signed: false,
-      hashValid: false,
-      digitalNameMatch: false,
+    const signals = await this.collectSignals(manifest._signature?.digitalName, manifest, {}, null);
+    const sig = manifest._signature || {};
+    return {
+      signed: signals.selfSigned?.present || false,
+      hashValid: signals.hashValid?.present || false,
+      digitalNameMatch: signals.domainBinding?.present || signals.contractExists?.present || false,
+      digitalName: sig.digitalName || null,
+      method: sig.method || null,
       checkedAt: new Date()
     };
+  }
 
-    if (!manifest._signature) return result;
+  /**
+   * Collect independent trust signals for an AI discovery entity.
+   *
+   * Each signal is { present: boolean, at: Date, ...evidence }.
+   * Called by syncDomain(); also used to derive the old verification shape.
+   */
+  async collectSignals(domain, manifest, txtVerification, discoveryMethod) {
+    const now = new Date();
+    const signals = {};
+    const sig = manifest?._signature || {};
 
-    result.signed = true;
-    result.digitalName = manifest._signature.digitalName || null;
-    result.method = manifest._signature.method || null;
+    // manifest — always present if we got here
+    signals.manifest = { present: true, at: now };
 
+    // selfSigned — _signature block exists
+    signals.selfSigned = {
+      present: !!sig.digitalName,
+      at: now,
+      digitalName: sig.digitalName || null,
+      method: sig.method || null
+    };
+
+    // hashValid — SHA-256 with `generated` stripped before hashing
     try {
-      // Clone and remove _signature
       const clone = JSON.parse(JSON.stringify(manifest));
       delete clone._signature;
+      delete clone.generated;   // defensive: strip volatile timestamp
 
-      // Deep sort keys recursively for canonical form
-      const sortKeys = (obj) => {
-        if (Array.isArray(obj)) return obj.map(sortKeys);
-        if (obj && typeof obj === 'object') {
-          return Object.keys(obj).sort().reduce((sorted, key) => {
-            sorted[key] = sortKeys(obj[key]);
-            return sorted;
-          }, {});
-        }
-        return obj;
-      };
-
-      const canonical = JSON.stringify(sortKeys(clone));
+      const canonical = JSON.stringify(this.sortKeys(clone));
       const hash = crypto.createHash('sha256').update(canonical).digest('hex');
-
-      // contentHash may have "sha256:" prefix
-      const expected = (manifest._signature.contentHash || '').replace(/^sha256:/, '');
-      result.hashValid = hash === expected;
-
-      // Cross-reference digitalName with known Agent entities
-      if (manifest._signature.digitalName) {
-        const agent = await this.database.getEntity(manifest._signature.digitalName);
-        result.digitalNameMatch = !!agent && agent.type === 'Agent';
-      }
-    } catch (error) {
-      console.error(`[discovery] Signature verification error:`, error.message);
+      const expected = (sig.contentHash || '').replace(/^sha256:/, '');
+      signals.hashValid = { present: hash === expected, at: now, computed: hash, expected };
+    } catch (e) {
+      signals.hashValid = { present: false, at: now, error: e.message };
     }
 
-    return result;
+    // contractExists — signing identity has on-chain contract
+    let agentEntity = null;
+    if (sig.digitalName) {
+      agentEntity = await this.database.getEntity(sig.digitalName);
+      signals.contractExists = {
+        present: !!agentEntity && agentEntity.type === 'Agent',
+        at: now,
+        address: sig.digitalName
+      };
+    } else {
+      signals.contractExists = { present: false, at: now };
+    }
+
+    // domainBinding — bidirectional: agent.metadata.domain points back to this domain
+    if (agentEntity && agentEntity.type === 'Agent' && agentEntity.metadata?.domain) {
+      const agentDomain = agentEntity.metadata.domain.toLowerCase();
+      signals.domainBinding = {
+        present: agentDomain === domain?.toLowerCase(),
+        at: now,
+        agentDomain
+      };
+    } else {
+      signals.domainBinding = { present: false, at: now };
+    }
+
+    // dnsVerified — TXT record exists
+    signals.dnsVerified = {
+      present: !!txtVerification?.hasTxtRecord,
+      at: now,
+      txtHost: txtVerification?.txtHost || null
+    };
+
+    // platform — detect epistery-host from signature method or manifest clues
+    const isEpisteryHost =
+      sig.method === 'epistery-host' ||
+      manifest?.identity?.platform === 'epistery-host' ||
+      (sig.method && sig.method.includes('epistery'));
+    signals.platform = { present: !!isEpisteryHost, at: now };
+
+    // future signals — placeholders
+    signals.dkimSigned = { present: false, at: now };
+    signals.challengeProven = { present: false, at: now };
+
+    return signals;
   }
 
   /**
