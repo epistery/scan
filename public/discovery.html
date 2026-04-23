@@ -7,6 +7,7 @@
   <link rel="alternate" type="application/json" href="/api/discovery">
   <link rel="ai-discovery" href="/.well-known/ai">
   <script src="/static/script/common.js"></script>
+  <script src="/static/script/expand.js"></script>
   <script type="module">
     import Witness from '/.well-known/epistery/lib/witness.js';
     try {
@@ -322,20 +323,6 @@
       text-decoration: none !important;
     }
 
-    /* --- ACE manifest viewer --- */
-    .manifest-viewer {
-      margin-top: 0.75rem;
-      border-top: 1px solid #e8e8e8;
-      padding-top: 0.75rem;
-    }
-
-    .manifest-viewer .ace-container {
-      width: 100%;
-      min-height: 350px;
-      border-radius: 4px;
-      overflow: hidden;
-    }
-
     /* --- Not-found card --- */
     .result-notfound {
       border-left: 3px solid #e0e0e0;
@@ -395,8 +382,8 @@
             <dd>Type a keyword or name to search all indexed signed-web domains</dd>
             <dt>Check a domain</dt>
             <dd>Enter a domain like <code>example.com</code> &mdash; if it isn't indexed, we'll check for a <code>/.well-known/ai</code> manifest</dd>
-            <dt>View Manifest</dt>
-            <dd>Click "View Manifest" on any result to inspect the raw AI discovery JSON</dd>
+            <dt>Expand</dt>
+            <dd>Click "Expand" on any result to see detailed overview, trust signals, activity, and raw manifest</dd>
             <dt>Add to Index</dt>
             <dd>Found a new domain? Click "Add to Index" to register it with Epistery</dd>
           </dl>
@@ -429,9 +416,6 @@
     const statsEl = document.getElementById('stats');
 
     let debounceTimer = null;
-    let aceEditor = null;
-    let aceLoaded = false;
-    let openManifestDomain = null;
 
     // --- Stats ---
     function loadStats() {
@@ -489,7 +473,7 @@
       resultsArea.style.display = 'block';
       resultsList.innerHTML = '<div style="text-align:center;padding:1rem;color:#999;">Searching...</div>';
       resultCount.textContent = '';
-      openManifestDomain = null;
+      ExpandResult.closeExpand();
 
       try {
         const res = await fetch(`/api/search?q=${encodeURIComponent(q)}`);
@@ -497,6 +481,7 @@
 
         if (data.results && data.results.length > 0) {
           resultCount.textContent = `${data.results.length} result${data.results.length === 1 ? '' : 's'}`;
+          cacheResults(data.results);
           resultsList.innerHTML = data.results.map(renderResult).join('');
           return;
         }
@@ -569,31 +554,6 @@
       }
     }
 
-    // --- Trust badge from score ---
-    function getTrustBadge(r) {
-      if (r.trustScore != null) {
-        const score = r.trustScore;
-        if (score >= 75) return '<span class="badge badge-verified">Verified</span>';
-        if (score >= 50) return '<span class="badge badge-trusted">Trusted</span>';
-        if (score >= 25) return '<span class="badge badge-claimed">Claimed</span>';
-        if (score >= 1)  return '<span class="badge badge-discovered">Discovered</span>';
-        return '<span class="badge badge-open">Open</span>';
-      }
-      if (r.signature?.verified) return '<span class="badge badge-verified">Verified</span>';
-      if (r.signature?.signed)   return '<span class="badge badge-signed">Signed</span>';
-      return '<span class="badge badge-open">Open</span>';
-    }
-
-    function renderSignalDots(signals) {
-      if (!signals) return '';
-      const names = ['manifest','selfSigned','hashValid','contractExists','domainBinding','dnsVerified','platform'];
-      const dots = names.map(n => {
-        const on = signals[n]?.present;
-        return `<span class="signal-dot ${on ? 'on' : 'off'}" title="${n}"></span>`;
-      }).join('');
-      return `<span class="signal-dots">${dots}</span>`;
-    }
-
     // Client-side signal summarizer (mirrors server Posture.summarizeSignals)
     function summarizeSignals(signals) {
       if (!signals) return null;
@@ -607,8 +567,9 @@
 
     // --- Render search result card ---
     function renderResult(r) {
-      const trustBadge = getTrustBadge(r);
-      const signalDots = renderSignalDots(r.signals);
+      if (r.type === 'Wallet' || r.type === 'Contract') return renderWalletResult(r);
+      const trustBadge = ExpandResult.getTrustBadge(r);
+      const signalDots = ExpandResult.renderSignalDots(r.signals);
 
       const domain = r.domain
         ? `<a class="result-domain" href="https://${escapeHtml(r.domain)}" target="_blank" rel="noopener">${escapeHtml(r.domain)}</a>`
@@ -622,7 +583,7 @@
         ? `<div class="result-concepts">${r.concepts.slice(0, 8).map(c => `<span class="concept-tag">${escapeHtml(c)}</span>`).join('')}</div>`
         : '';
 
-      const caps = renderCapabilities(r.capabilities);
+      const caps = ExpandResult.renderCapabilities(r.capabilities);
 
       const metaParts = [];
       if (r.discoveryMethod) metaParts.push(`via ${escapeHtml(r.discoveryMethod)}`);
@@ -637,11 +598,12 @@
         ? `<div class="claim-link"><a href="https://rootz.global/ai-discovery" target="_blank" rel="noopener">Claim this listing</a> &mdash; add a signature to own your search result</div>`
         : '';
 
-      const manifestLink = r.domain
-        ? `<div class="result-actions"><a href="javascript:void(0)" onclick="viewManifest('${escapeAttr(r.domain)}')">View Manifest</a></div>`
+      const entityId = r.domain || r.name;
+      const expandLink = entityId
+        ? `<div class="result-actions"><a href="javascript:void(0)" onclick="ExpandResult.toggle('${escapeAttr(entityId)}')">Expand</a></div>`
         : '';
 
-      const cardId = r.domain ? ` id="card-${escapeAttr(r.domain)}"` : '';
+      const cardId = entityId ? ` id="card-${escapeAttr(entityId)}"` : '';
 
       return `
         <div class="result"${cardId}>
@@ -655,7 +617,7 @@
           ${caps}
           ${meta}
           ${claim}
-          ${manifestLink}
+          ${expandLink}
         </div>
       `;
     }
@@ -667,28 +629,27 @@
       const concepts = manifest.coreConcepts || [];
       const capabilities = manifest.capabilities || {};
 
-      // Use trust score if available
+      // Build a result-shaped object for the cache
       const score = entity.metadata?.trustScore;
-      let trustBadge;
-      if (score != null) {
-        if (score >= 75)     trustBadge = '<span class="badge badge-verified">Verified</span>';
-        else if (score >= 50) trustBadge = '<span class="badge badge-trusted">Trusted</span>';
-        else if (score >= 25) trustBadge = '<span class="badge badge-claimed">Claimed</span>';
-        else if (score >= 1)  trustBadge = '<span class="badge badge-discovered">Discovered</span>';
-        else                  trustBadge = '<span class="badge badge-open">Open</span>';
-      } else {
-        const verification = entity.metadata?.verification || {};
-        trustBadge = verification.hashValid
-          ? (verification.digitalNameMatch
-            ? '<span class="badge badge-verified">Verified</span>'
-            : '<span class="badge badge-signed">Signed</span>')
-          : verification.signed
-            ? '<span class="badge badge-signed">Signed</span>'
-            : '<span class="badge badge-open">Open</span>';
-      }
-      const signalDots = renderSignalDots(entity.metadata?.signals ? summarizeSignals(entity.metadata.signals) : null);
+      const domain = entity.address;
+      const fakeResult = {
+        name: org.name || entity.address || 'Unknown',
+        domain: domain,
+        mission: org.description || '',
+        trustScore: score,
+        signals: entity.metadata?.signals ? summarizeSignals(entity.metadata.signals) : null,
+        concepts: concepts.map(c => c.term || c),
+        applications: manifest.applications || [],
+        people: manifest.people || [],
+        capabilities: capabilities,
+        signature: entity.metadata?.verification || entity.metadata?.signature || {}
+      };
+      _resultCache[domain] = fakeResult;
 
-      const name = org.name || entity.address || 'Unknown';
+      const trustBadge = ExpandResult.getTrustBadge(fakeResult);
+      const signalDots = ExpandResult.renderSignalDots(fakeResult.signals);
+
+      const name = fakeResult.name;
       const mission = org.description
         ? `<div class="result-mission">${escapeHtml(org.description)}</div>`
         : '';
@@ -700,8 +661,7 @@
         ? `<div class="result-concepts">${conceptTags}</div>`
         : '';
 
-      const caps = renderCapabilities(capabilities);
-      const domain = entity.address;
+      const caps = ExpandResult.renderCapabilities(capabilities);
 
       return `
         <div class="result" id="card-${escapeAttr(domain)}">
@@ -714,7 +674,7 @@
           ${conceptsHtml}
           ${caps}
           <div class="result-actions">
-            <a href="javascript:void(0)" onclick="viewManifest('${escapeAttr(domain)}')">View Manifest</a>
+            <a href="javascript:void(0)" onclick="ExpandResult.toggle('${escapeAttr(domain)}')">Expand</a>
             <button class="add-btn" data-add-domain="${escapeAttr(domain)}" onclick="addDomain('${escapeAttr(domain)}')">Add to Index</button>
           </div>
         </div>
@@ -736,16 +696,45 @@
       `;
     }
 
-    function renderCapabilities(caps) {
-      if (!caps) return '';
-      const available = [];
-      for (const [key, val] of Object.entries(caps)) {
-        if (val && (val === true || val.available)) {
-          available.push(key);
-        }
-      }
-      if (available.length === 0) return '';
-      return `<div class="result-capabilities">${available.map(c => `<span class="cap-tag">${escapeHtml(c)}</span>`).join('')}</div>`;
+    function renderWalletResult(r) {
+      const typeLabel = r.type === 'Contract' ? 'Contract' : 'Wallet';
+      const typeBadge = `<span class="badge badge-chain badge-chain-${escapeAttr(r.chain || 'ethereum')}">${escapeHtml(r.chain || 'unknown')}</span>`;
+      const sourceBadge = '<span class="badge-source badge-source-sw">Chain</span>';
+      const truncAddr = r.name.slice(0, 6) + '...' + r.name.slice(-4);
+
+      const balanceHtml = r.balanceFormatted
+        ? `<div class="wallet-balance">${escapeHtml(r.balanceFormatted)}</div>`
+        : '';
+
+      const tokensHtml = r.tokens && r.tokens.length > 0
+        ? `<div class="result-concepts">${r.tokens.map(t => `<span class="concept-tag">${escapeHtml(t.balanceFormatted)}</span>`).join('')}</div>`
+        : '';
+
+      const txHtml = r.transactionCount != null
+        ? `<div class="result-meta">${r.transactionCount.toLocaleString()} transaction${r.transactionCount === 1 ? '' : 's'}</div>`
+        : '';
+
+      const contractHtml = r.contractMeta
+        ? `<div class="result-apps"><strong>${typeLabel}</strong>${r.contractMeta.domain ? ' &mdash; ' + escapeHtml(r.contractMeta.domain) : ''}</div>`
+        : '';
+
+      const entityId = r.name + '-' + (r.chain || '');
+      const expandLink = `<div class="result-actions"><a href="javascript:void(0)" onclick="ExpandResult.toggle('${escapeAttr(entityId)}')">Expand</a></div>`;
+
+      return `
+        <div class="result result-wallet" id="card-${escapeAttr(entityId)}">
+          <div class="result-header">
+            <span class="result-name" style="font-family:monospace;font-size:1rem;">${escapeHtml(truncAddr)}</span>
+            ${typeBadge}
+            <span class="result-trust"><span class="badge badge-open">${escapeHtml(typeLabel)}</span>${sourceBadge}</span>
+          </div>
+          ${balanceHtml}
+          ${tokensHtml}
+          ${contractHtml}
+          ${txHtml}
+          ${expandLink}
+        </div>
+      `;
     }
 
     function renderEmpty(q) {
@@ -761,64 +750,33 @@
       `;
     }
 
-    // --- ACE manifest viewer ---
-    async function viewManifest(domain) {
-      // Close if same domain clicked again
-      if (openManifestDomain === domain) {
-        const existing = document.querySelector('.manifest-viewer');
-        if (existing) existing.remove();
-        openManifestDomain = null;
-        return;
-      }
-
-      // Remove any open viewer
-      const prev = document.querySelector('.manifest-viewer');
-      if (prev) prev.remove();
-
-      const card = document.getElementById('card-' + domain);
-      if (!card) return;
-
-      // Create viewer container
-      const viewer = document.createElement('div');
-      viewer.className = 'manifest-viewer';
-      viewer.innerHTML = '<div style="text-align:center;padding:1rem;color:#999;">Loading manifest...</div>';
-      card.appendChild(viewer);
-      openManifestDomain = domain;
-
-      try {
-        // Lazy-load ACE
-        if (!aceLoaded) {
-          await new Promise((resolve, reject) => {
-            const s = document.createElement('script');
-            s.src = 'https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.6/ace.min.js';
-            s.onload = resolve;
-            s.onerror = reject;
-            document.head.appendChild(s);
-          });
-          aceLoaded = true;
+    // --- Result cache and ExpandResult init ---
+    const _resultCache = {};
+    function cacheResults(results) {
+      for (const r of results) {
+        let id;
+        if (r.type === 'Wallet' || r.type === 'Contract') {
+          id = r.name + '-' + (r.chain || '');
+        } else {
+          id = r.domain || r.name;
         }
-
-        // Fetch manifest
-        const res = await fetch(`/api/discovery/${encodeURIComponent(domain)}`);
-        const data = await res.json();
-        const manifest = data.entity?.metadata?.manifest || data.entity || data;
-
-        // Render ACE editor
-        const aceId = 'ace-' + domain.replace(/\W/g, '-');
-        viewer.innerHTML = `<div class="ace-container" id="${aceId}"></div>`;
-
-        aceEditor = window.ace.edit(aceId);
-        aceEditor.setTheme('ace/theme/monokai');
-        aceEditor.session.setMode('ace/mode/json');
-        aceEditor.setReadOnly(true);
-        aceEditor.setShowPrintMargin(false);
-        aceEditor.session.setUseWrapMode(true);
-        aceEditor.renderer.setShowGutter(true);
-        aceEditor.setValue(JSON.stringify(manifest, null, 2), -1);
-      } catch (err) {
-        viewer.innerHTML = `<div style="padding:1rem;color:#c0392b;">Error loading manifest: ${escapeHtml(err.message)}</div>`;
+        if (id) _resultCache[id] = r;
       }
     }
+
+    ExpandResult.init({
+      cache: _resultCache,
+      fetchManifest: async (id) => {
+        const addrMatch = id.match(/^(0x[a-f0-9]{40})-/i);
+        if (addrMatch) {
+          const res = await fetch('/api/search/address/' + encodeURIComponent(addrMatch[1]));
+          return await res.json();
+        }
+        const res = await fetch('/api/discovery/' + encodeURIComponent(id));
+        const data = await res.json();
+        return data.entity?.metadata?.manifest || data;
+      }
+    });
 
     // --- URL query support ---
     const params = new URLSearchParams(window.location.search);

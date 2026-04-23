@@ -204,3 +204,151 @@ body {
     border-radius: 3px;
     font-size: 0.82rem;
 }
+
+/* --- Expand panel (shared tabbed detail view) --- */
+.expand-panel {
+    margin-top: 0.75rem;
+    border-top: 1px solid #e8e8e8;
+    padding-top: 0.5rem;
+}
+
+.expand-tabs {
+    display: flex;
+    gap: 0;
+    border-bottom: 1px solid #e0e0e0;
+    margin-bottom: 0.75rem;
+}
+
+.expand-tab {
+    padding: 0.45rem 1rem;
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    cursor: pointer;
+    font-size: 0.82rem;
+    color: #888;
+    transition: color 0.15s, border-color 0.15s;
+}
+
+.expand-tab:hover {
+    color: #2c3e50;
+}
+
+.expand-tab.active {
+    color: #2c3e50;
+    border-bottom-color: #3498db;
+    font-weight: 600;
+}
+
+.expand-body {
+    min-height: 80px;
+    font-size: 0.9rem;
+}
+
+.expand-section {
+    margin-bottom: 1rem;
+}
+
+.expand-section-title {
+    font-size: 0.78rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #999;
+    margin-bottom: 0.35rem;
+}
+
+.signal-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.82rem;
+}
+
+.signal-table th {
+    text-align: left;
+    padding: 0.35rem 0.5rem;
+    border-bottom: 1px solid #e0e0e0;
+    font-weight: 600;
+    color: #555;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+}
+
+.signal-table td {
+    padding: 0.35rem 0.5rem;
+    border-bottom: 1px solid #f0f0f0;
+}
+
+.event-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.event-item {
+    padding: 0.5rem 0.75rem;
+    background: #fafafa;
+    border: 1px solid #f0f0f0;
+    border-radius: 4px;
+    font-size: 0.85rem;
+}
+
+.expand-panel .ace-container {
+    width: 100%;
+    min-height: 350px;
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+/* --- Wallet / Contract result cards --- */
+.result-wallet {
+    border-left: 3px solid #f39c12;
+}
+
+.wallet-balance {
+    margin-top: 0.5rem;
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: #2c3e50;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', monospace;
+}
+
+.token-list {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.82rem;
+}
+
+.token-list th {
+    text-align: left;
+    padding: 0.35rem 0.5rem;
+    border-bottom: 1px solid #e0e0e0;
+    font-weight: 600;
+    color: #555;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+}
+
+.token-list td {
+    padding: 0.35rem 0.5rem;
+    border-bottom: 1px solid #f0f0f0;
+    font-family: monospace;
+}
+
+/* Chain badges */
+.badge-chain {
+    display: inline-block;
+    padding: 0.15rem 0.5rem;
+    border-radius: 3px;
+    font-size: 0.65rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-left: 0.5rem;
+}
+
+.badge-chain-polygon       { background: #e8defb; color: #7b3fe4; }
+.badge-chain-polygon-amoy  { background: #e8defb; color: #7b3fe4; }
+.badge-chain-ethereum       { background: #e3ecf8; color: #3c5a99; }
+.badge-chain-sepolia        { background: #e3ecf8; color: #3c5a99; }
+.badge-chain-japanopenchain { background: #fce4ec; color: #c62828; }
