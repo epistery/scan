@@ -1,5 +1,5 @@
 {
-  "name": "@epistery/scan",
+  "name": "epistery/scan",
   "version": "2.0.0",
   "description": "Search the signed web — authored knowledge indexed from /.well-known/ai manifests",
   "author": "Rootz Corp",
