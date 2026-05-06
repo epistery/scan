@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import dns from 'dns';
+import { Config } from 'epistery';
 import { computeTrustScore } from '../lib/Posture.mjs';
 
 const dnsResolver = new dns.promises.Resolver();
@@ -22,10 +23,45 @@ export default class DomainDiscovery {
   constructor(database, config = {}) {
     this.database = database;
     this.pollInterval = config.pollInterval || 86400000; // 24 hours
+    this.priorityInterval = config.priorityInterval || 3600000; // 1 hour for priority sources
     this.fetchTimeout = config.fetchTimeout || 10000; // 10 seconds
     this.seedDomains = config.seedDomains || ['epistery.io', 'rootz.global', 'geist.social', 'michael.sprague.com', 'findbet.com', 'libertyproject.com'];
+    this.prioritySources = []; // domains from [sources] config — checked hourly
     this.isRunning = false;
     this.pollTimer = null;
+    this.priorityTimer = null;
+
+    // Load priority sources from epistery config [sources] section
+    this._loadSourcesConfig();
+  }
+
+  /**
+   * Read [sources] from epistery Config on startup.
+   * Each key=url entry becomes a priority domain extracted from the URL.
+   * Priority sources are checked every hour instead of every 24 hours.
+   */
+  _loadSourcesConfig() {
+    try {
+      const cfg = new Config();
+      cfg.setPath('/');
+      const sources = cfg.data?.sources;
+      if (!sources || typeof sources !== 'object') return;
+
+      for (const [name, url] of Object.entries(sources)) {
+        try {
+          const hostname = new URL(url).hostname;
+          this.prioritySources.push({ name, url, domain: hostname });
+        } catch {
+          console.warn(`[discovery] Invalid source URL for "${name}": ${url}`);
+        }
+      }
+
+      if (this.prioritySources.length > 0) {
+        console.log(`[discovery] Loaded ${this.prioritySources.length} priority sources: ${this.prioritySources.map(s => s.domain).join(', ')}`);
+      }
+    } catch (err) {
+      console.warn('[discovery] Could not load [sources] config:', err.message);
+    }
   }
 
   /**
@@ -296,6 +332,9 @@ export default class DomainDiscovery {
       });
     }
 
+    // Extract queryable capabilities from manifest tools/endpoints/apis
+    const extractedCapabilities = this._extractCapabilities(manifest);
+
     // Build entity metadata
     const tiers = {
       discovery: { fetchedAt: now, data: manifest }
@@ -336,6 +375,7 @@ export default class DomainDiscovery {
         signals,
         trustScore,
         identityLinks,
+        capabilities: extractedCapabilities.length > 0 ? extractedCapabilities : undefined,
         discoveryMethod,
         manifestUrl,
         txtVerification,
@@ -596,6 +636,75 @@ export default class DomainDiscovery {
   }
 
   /**
+   * Extract queryable capabilities from a manifest's tools, endpoints, and apis.
+   * Each capability gets keywords derived from its name and description.
+   *
+   * @param {Object} manifest
+   * @returns {Array<{name: string, keywords: string[], endpoint: string, description?: string}>}
+   */
+  _extractCapabilities(manifest) {
+    const caps = [];
+
+    // From apis section (epistery standard)
+    if (manifest.apis && typeof manifest.apis === 'object') {
+      for (const [name, api] of Object.entries(manifest.apis)) {
+        const desc = api.description || '';
+        caps.push({
+          name,
+          keywords: this._deriveKeywords(name, desc),
+          endpoint: api.url || '',
+          description: desc || undefined,
+        });
+      }
+    }
+
+    // From tools section (MCP-style)
+    if (Array.isArray(manifest.tools)) {
+      for (const tool of manifest.tools) {
+        const name = tool.name || '';
+        const desc = tool.description || '';
+        caps.push({
+          name,
+          keywords: this._deriveKeywords(name, desc),
+          endpoint: tool.endpoint || tool.url || '',
+          description: desc || undefined,
+        });
+      }
+    }
+
+    // From endpoints section
+    if (Array.isArray(manifest.endpoints)) {
+      for (const ep of manifest.endpoints) {
+        const name = ep.name || ep.path || '';
+        const desc = ep.description || '';
+        caps.push({
+          name,
+          keywords: this._deriveKeywords(name, desc),
+          endpoint: ep.url || ep.path || '',
+          description: desc || undefined,
+        });
+      }
+    }
+
+    return caps;
+  }
+
+  /**
+   * Derive search keywords from a capability name and description.
+   * Splits camelCase, removes common words, deduplicates.
+   */
+  _deriveKeywords(name, description) {
+    const stop = new Set(['the', 'a', 'an', 'is', 'in', 'to', 'for', 'of', 'and', 'or', 'by', 'get', 'set', 'list', 'api']);
+    const text = `${name} ${description}`.toLowerCase();
+    // Split on non-alpha, and also split camelCase
+    const tokens = text
+      .replace(/([a-z])([A-Z])/g, '$1 $2')
+      .split(/[^a-z0-9]+/)
+      .filter(t => t.length > 2 && !stop.has(t));
+    return [...new Set(tokens)];
+  }
+
+  /**
    * Process all active domains due for checking
    */
   async processDomains() {
@@ -612,7 +721,7 @@ export default class DomainDiscovery {
   }
 
   /**
-   * Seed known domains on first start
+   * Seed known domains on first start, including priority sources.
    */
   async seedKnownDomains() {
     for (const domain of this.seedDomains) {
@@ -625,6 +734,37 @@ export default class DomainDiscovery {
           discoveredFrom: 'seed'
         });
         console.log(`[discovery] Seeded domain: ${domain}`);
+      }
+    }
+
+    // Seed priority sources from [sources] config
+    for (const source of this.prioritySources) {
+      const existing = await this.database.getDomain(source.domain);
+      if (!existing) {
+        await this.database.addDomain({
+          domain: source.domain,
+          active: true,
+          status: 'pending',
+          discoveredFrom: `source:${source.name}`
+        });
+        console.log(`[discovery] Seeded priority source: ${source.domain} (${source.name})`);
+      }
+    }
+  }
+
+  /**
+   * Process priority sources on their faster cycle.
+   * These are configured data sources that get checked every hour.
+   */
+  async processPrioritySources() {
+    if (this.prioritySources.length === 0) return;
+    console.log(`[discovery] Checking ${this.prioritySources.length} priority sources...`);
+
+    for (const source of this.prioritySources) {
+      try {
+        await this.checkDomain(source.domain);
+      } catch (error) {
+        console.error(`[discovery] Error checking priority source ${source.domain}:`, error.message);
       }
     }
   }
@@ -662,7 +802,7 @@ export default class DomainDiscovery {
     }
 
     this.isRunning = true;
-    console.log(`[discovery] Starting polling (interval: ${this.pollInterval}ms)`);
+    console.log(`[discovery] Starting polling (interval: ${this.pollInterval}ms, priority: ${this.priorityInterval}ms)`);
 
     this.pollTimer = setInterval(async () => {
       try {
@@ -672,6 +812,17 @@ export default class DomainDiscovery {
         console.error('[discovery] Poll error:', error);
       }
     }, this.pollInterval);
+
+    // Priority sources get their own faster cycle
+    if (this.prioritySources.length > 0) {
+      this.priorityTimer = setInterval(async () => {
+        try {
+          await this.processPrioritySources();
+        } catch (error) {
+          console.error('[discovery] Priority poll error:', error);
+        }
+      }, this.priorityInterval);
+    }
 
     // Run immediately on start
     (async () => {
@@ -695,6 +846,10 @@ export default class DomainDiscovery {
     if (this.pollTimer) {
       clearInterval(this.pollTimer);
       this.pollTimer = null;
+    }
+    if (this.priorityTimer) {
+      clearInterval(this.priorityTimer);
+      this.priorityTimer = null;
     }
     console.log('[discovery] Stopped polling');
   }

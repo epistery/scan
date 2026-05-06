@@ -335,6 +335,20 @@ export default class SearchHandler {
       console.warn('[search] Text search failed, falling back to regex:', err.message);
     }
 
+    // Capability-based routing — check if any indexed source can handle this query live
+    if (results.results.length === 0) {
+      try {
+        const capResults = await this._queryCapableSources(q, limit);
+        if (capResults.length > 0) {
+          results.results = capResults;
+          results.meta.total = capResults.length;
+          results.meta.sources.push('capability-proxy');
+        }
+      } catch (err) {
+        console.warn('[search] Capability routing failed:', err.message);
+      }
+    }
+
     // Fallback — regex search if text search yielded nothing
     if (results.results.length === 0) {
       const searchRegex = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
@@ -910,6 +924,99 @@ export default class SearchHandler {
         { upsert: true }
       );
     }
+  }
+
+  /**
+   * Find indexed sources whose capabilities match the query, and proxy live queries.
+   * Scores query words against capability keywords. Sources above threshold get a
+   * live fetch to their matching endpoint, with results attributed back.
+   */
+  async _queryCapableSources(query, limit = 5) {
+    const words = query.toLowerCase().split(/\s+/).filter(w => w.length > 2);
+    if (words.length === 0) return [];
+
+    // Find entities with capabilities
+    const entities = await this.db.collection('entities')
+      .find({
+        type: 'AIDiscovery',
+        'metadata.capabilities': { $exists: true, $ne: null }
+      })
+      .limit(50)
+      .toArray();
+
+    const matches = [];
+
+    for (const entity of entities) {
+      const caps = entity.metadata.capabilities || [];
+      for (const cap of caps) {
+        if (!cap.keywords || !cap.endpoint) continue;
+        // Score: how many query words match capability keywords
+        let score = 0;
+        for (const w of words) {
+          if (cap.keywords.some(kw => kw.includes(w) || w.includes(kw))) score++;
+        }
+        if (score > 0) {
+          matches.push({ entity, cap, score: score / words.length });
+        }
+      }
+    }
+
+    // Sort by score, take top matches above threshold
+    matches.sort((a, b) => b.score - a.score);
+    const threshold = 0.3; // at least 30% of query words match
+    const top = matches.filter(m => m.score >= threshold).slice(0, limit);
+
+    const results = [];
+    for (const match of top) {
+      const domain = match.entity.address;
+      const endpoint = match.cap.endpoint;
+
+      // Build URL — if endpoint is relative, prepend domain
+      let url;
+      try {
+        url = endpoint.startsWith('http')
+          ? endpoint
+          : `https://${domain}${endpoint.startsWith('/') ? '' : '/'}${endpoint}`;
+        // Substitute query placeholder if present
+        url = url.replace('{query}', encodeURIComponent(query));
+      } catch {
+        continue;
+      }
+
+      // Proxy the live query
+      try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 8000);
+        const resp = await fetch(url, {
+          headers: { 'Accept': 'application/json' },
+          signal: controller.signal,
+        });
+        clearTimeout(timeout);
+
+        if (!resp.ok) continue;
+        const data = await resp.json();
+
+        results.push({
+          domain,
+          name: match.entity.metadata?.manifest?.organization?.name || domain,
+          type: 'CapabilityProxy',
+          chain: 'web',
+          mission: match.cap.description || null,
+          capability: match.cap.name,
+          capabilityScore: Math.round(match.score * 100),
+          proxyData: data,
+          trustScore: match.entity.metadata?.trustScore || 0,
+          trustLabel: trustLabel(match.entity.metadata?.trustScore || 0),
+          source: domain,
+          discoveryMethod: 'capability-proxy',
+          lastChecked: new Date(),
+        });
+      } catch {
+        // Proxy failed — skip this source
+      }
+    }
+
+    return results;
   }
 
   _formatBalance(weiStr, decimals = 18) {

@@ -170,12 +170,46 @@ export default class EpisteryScan {
     });
 
     // Search page — content negotiation: bots get JSON, browsers get HTML
+    // JSON via Accept header or ?apikey parameter (mutual attribution)
     router.get('/', async (req, res) => {
-      if (wantsJson(req)) {
+      const useJson = wantsJson(req) || req.query.apikey;
+      if (useJson) {
         try {
           if (req.query.q) {
             const results = await searchHandler.search(req.query.q, parseInt(req.query.limit) || 20);
-            return res.json(results);
+
+            // Enrich with source trust info from priority sources
+            const sources = (this.ingestion?.domainDiscovery?.prioritySources || []).map(s => ({
+              domain: s.domain,
+              name: s.name,
+            }));
+
+            // Sign the response for provenance
+            const response = {
+              query: req.query.q,
+              ...results,
+              sources: sources.length > 0 ? sources : undefined,
+            };
+
+            const signer = req.app.locals.epistery?.signer;
+            if (signer) {
+              try {
+                const crypto = await import('crypto');
+                const canonical = JSON.stringify(response);
+                const hash = crypto.createHash('sha256').update(canonical).digest('hex');
+                const signature = await signer.signMessage(hash);
+                const address = await signer.getAddress();
+                response.signed = { hash, signature, signer: address };
+              } catch {
+                // Signing optional — continue without it
+              }
+            }
+
+            if (req.query.apikey) {
+              response.apikey_echo = req.query.apikey;
+            }
+
+            return res.json(response);
           }
           const stats = await searchHandler.getStats();
           return res.json({

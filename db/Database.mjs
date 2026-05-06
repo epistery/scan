@@ -80,6 +80,9 @@ export default class Database {
     // Trust score index for posture queries
     await this.entities.createIndex({ 'metadata.trustScore': 1 });
 
+    // Capability index for query routing
+    await this.entities.createIndex({ 'metadata.capabilities.keywords': 1 });
+
     // Domain indexes (AI discovery crawl state)
     await this.domains.createIndex({ domain: 1 }, { unique: true });
     await this.domains.createIndex({ active: 1 });
