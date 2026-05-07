@@ -200,7 +200,7 @@ export default class DomainDiscovery {
       tools = m.mcp.tools.map(name => ({ name }));
     }
 
-    // Enrich tools with template paths from key_endpoints or _skill_discovery
+    // 1. Template paths from key_endpoints or _skill_discovery (preferred — parameterized)
     const templateEndpoints = m.key_endpoints
       || m._skill_discovery?.remember?.endpoints
       || null;
@@ -208,7 +208,7 @@ export default class DomainDiscovery {
       for (const tool of tools) {
         const suffix = tool.name.replace(/^[^_]*_/, ''); // origin_company → company
         const raw = templateEndpoints[suffix] || templateEndpoints[tool.name];
-        if (raw && !tool.path) {
+        if (raw) {
           // Entries may be "path — description"; split on em-dash
           const [pathPart, descPart] = raw.split(/\s*[—–]\s*/);
           tool.path = pathPart.trim();
@@ -217,10 +217,10 @@ export default class DomainDiscovery {
         }
       }
     }
-    // Also try matching against api_endpoints for descriptions
+    // 2. Fall back to api_endpoints for tools still missing path or description
     if (endpoints.length > 0) {
       for (const tool of tools) {
-        if (tool.description) continue;
+        if (tool.path && tool.description) continue;
         const suffix = tool.name.replace(/^[^_]*_/, '');
         const ep = endpoints.find(e => {
           const p = e.path || '';
