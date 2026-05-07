@@ -415,19 +415,26 @@ if (import.meta.url === (await import('url')).pathToFileURL(process.argv[1]).hre
         },
         skills: (scan.ingestion?.domainDiscovery?.dataSources || [])
           .filter(ds => ds.skillManifest)
-          .map(ds => ({
-            name: ds.skillManifest.name || ds.name,
-            domain: ds.domain,
-            mission: ds.skillManifest.mission || ds.skillManifest.description || ds.label,
-            topics: ds.topics,
-            tools: (ds.skillManifest.tools || []).map(t => ({
-              name: t.name,
-              description: t.description,
-              method: t.method,
-              path: t.path,
-              inputSchema: t.inputSchema
-            }))
-          })),
+          .map(ds => {
+            const m = ds.skillManifest;
+            const skill = {
+              name: m.name || ds.name,
+              domain: ds.domain,
+              mission: m.mission || m.description || ds.label,
+              topics: ds.topics,
+              tools: (m.tools || []).map(t => ({
+                name: t.name,
+                description: t.description,
+                method: t.method,
+                path: t.path,
+                inputSchema: t.inputSchema
+              }))
+            };
+            if (m.mcp_endpoint) skill.mcp_endpoint = m.mcp_endpoint;
+            if (m.api_base) skill.api_base = m.api_base;
+            if (m.api_endpoints) skill.api_endpoints = m.api_endpoints;
+            return skill;
+          }),
         coreConcepts: [
           { term: 'AI Discovery', definition: 'Web standard where domains publish /.well-known/ai manifests for AI agent consumption' },
           { term: 'DomainAgent', definition: 'Blockchain contract that links a domain name to an on-chain identity' },

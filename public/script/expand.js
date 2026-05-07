@@ -265,12 +265,32 @@ const ExpandResult = (function () {
 
     // Skill-specific info
     if (r.type === 'Skill') {
+      // Connection endpoints
+      if (r.mcp_endpoint || r.api_base) {
+        html += '<div class="expand-section">';
+        html += '<div class="expand-section-title">Endpoints</div>';
+        if (r.mcp_endpoint) html += `<div><strong>MCP:</strong> <a href="${escapeHtml(r.mcp_endpoint)}" target="_blank" rel="noopener" style="color:#00695c;font-family:monospace;">${escapeHtml(r.mcp_endpoint)}</a></div>`;
+        if (r.api_base) html += `<div><strong>REST API:</strong> <a href="${escapeHtml(r.api_base)}" target="_blank" rel="noopener" style="color:#00695c;font-family:monospace;">${escapeHtml(r.api_base)}</a></div>`;
+        html += '</div>';
+      }
       if (r.tools && r.tools.length > 0) {
         html += '<div class="expand-section">';
         html += `<div class="expand-section-title">${r.tools.length} Tool${r.tools.length === 1 ? '' : 's'}</div>`;
         r.tools.forEach(t => {
           html += `<div><strong style="color:#00695c;font-family:monospace;">${escapeHtml(t.name)}</strong>`;
+          if (t.method && t.path) html += ` <span style="color:#999;font-size:0.8rem;">${escapeHtml(t.method)} ${escapeHtml(t.path)}</span>`;
           if (t.description) html += ` &mdash; ${escapeHtml(t.description)}`;
+          html += '</div>';
+        });
+        html += '</div>';
+      }
+      // API endpoints (from /.well-known/ai manifest)
+      if (r.api_endpoints && r.api_endpoints.length > 0) {
+        html += '<div class="expand-section">';
+        html += `<div class="expand-section-title">${r.api_endpoints.length} API Endpoint${r.api_endpoints.length === 1 ? '' : 's'}</div>`;
+        r.api_endpoints.forEach(ep => {
+          html += `<div><strong style="font-family:monospace;font-size:0.85rem;">${escapeHtml(ep.method || 'GET')}</strong> <span style="font-family:monospace;color:#00695c;">${escapeHtml(ep.path)}</span>`;
+          if (ep.description) html += ` &mdash; <span style="color:#666;">${escapeHtml(ep.description)}</span>`;
           html += '</div>';
         });
         html += '</div>';

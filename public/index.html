@@ -391,6 +391,25 @@
 
     .badge-source-skill { background: #e0f2f1; color: #00695c; }
 
+    .skill-endpoints {
+      margin-top: 0.4rem;
+      display: flex;
+      gap: 0.75rem;
+      flex-wrap: wrap;
+    }
+
+    .skill-endpoint {
+      font-family: monospace;
+      font-size: 0.8rem;
+      color: #00695c;
+      text-decoration: none;
+      background: #e0f2f1;
+      padding: 0.15rem 0.4rem;
+      border-radius: 3px;
+    }
+
+    .skill-endpoint:hover { background: #b2dfdb; }
+
     .skill-tools {
       margin-top: 0.5rem;
       font-size: 0.85rem;
@@ -735,6 +754,14 @@
           ).join('')}</div>`
         : '';
 
+      // MCP endpoint and API links
+      const endpoints = [];
+      if (r.mcp_endpoint) endpoints.push(`<a href="${escapeAttr(r.mcp_endpoint)}" target="_blank" class="skill-endpoint">MCP: ${escapeHtml(r.mcp_endpoint)}</a>`);
+      if (r.api_base) endpoints.push(`<a href="${escapeAttr(r.api_base)}" target="_blank" class="skill-endpoint">API: ${escapeHtml(r.api_base)}</a>`);
+      const endpointsHtml = endpoints.length > 0
+        ? `<div class="skill-endpoints">${endpoints.join('')}</div>`
+        : '';
+
       const metaParts = [];
       if (r.topicScore != null) metaParts.push(`topic match: ${r.topicScore}%`);
       if (r.discoveryMethod) metaParts.push(`via ${r.discoveryMethod}`);
@@ -753,6 +780,7 @@
             <span class="result-trust">${trustBadge}${toolsBadge}${sourceBadge}</span>
           </div>
           ${mission}
+          ${endpointsHtml}
           ${topics}
           ${tools}
           ${meta}

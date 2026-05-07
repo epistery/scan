@@ -124,14 +124,16 @@ export default class DomainDiscovery {
         // Fall back to standard AI discovery manifest
         if (!manifest) {
           const aiManifest = await this.fetchJSON(`${ds.url}/.well-known/ai`);
-          if (aiManifest && (aiManifest.tools || aiManifest.datasets)) {
-            manifest = aiManifest;
+          if (aiManifest) {
+            manifest = this._normalizeManifest(aiManifest, ds.url);
           }
         }
 
         if (manifest) {
           ds.skillManifest = manifest;
-          console.log(`[discovery] ${ds.name}: fetched skill manifest (${(manifest.tools || []).length} tools)`);
+          const toolCount = (manifest.tools || []).length;
+          const epCount = (manifest.api_endpoints || []).length;
+          console.log(`[discovery] ${ds.name}: skill manifest (${toolCount} tools, ${epCount} endpoints)`);
         } else {
           console.log(`[discovery] ${ds.name}: no skill manifest found at ${ds.domain}`);
         }
@@ -139,6 +141,99 @@ export default class DomainDiscovery {
         console.warn(`[discovery] ${ds.name}: skill manifest fetch failed:`, err.message);
       }
     }
+  }
+
+  /**
+   * Normalize a /.well-known/ai manifest into our standard skill shape.
+   * Handles multiple manifest conventions:
+   *   - tools[] at top level (cars pattern)
+   *   - mcp.tools as name strings + api.endpoints[] (origin pattern)
+   *   - key_endpoints as { name: path } map
+   *   - api_endpoints[] vs api.endpoints[]
+   */
+  _normalizeManifest(m, baseUrl) {
+    // Must have some tool/endpoint/capability indicator
+    if (!m.tools && !m.mcp?.tools && !m.api?.endpoints && !m.key_endpoints && !m.capabilities) {
+      return null;
+    }
+
+    const normalized = {
+      name: m.name,
+      description: m.description,
+      mission: m.mission || m.tagline || m.description
+    };
+
+    // MCP endpoint
+    if (m.mcp_endpoint) normalized.mcp_endpoint = m.mcp_endpoint;
+    else if (m.mcp?.remote) {
+      // "claude mcp add origin --transport http https://origin.rootz.global/mcp"
+      const match = m.mcp.remote.match(/https?:\/\/\S+/);
+      if (match) normalized.mcp_endpoint = match[0];
+    }
+
+    // API base
+    normalized.api_base = m.api_base || m.api?.base_url || m.retrieval?.api_base || null;
+
+    // Flatten api_endpoints from various locations
+    let endpoints = [];
+    if (Array.isArray(m.api_endpoints)) {
+      endpoints = m.api_endpoints;
+    } else if (Array.isArray(m.api?.endpoints)) {
+      // Origin pattern: full URLs in api.endpoints[].url — convert to relative paths
+      endpoints = m.api.endpoints.map(ep => {
+        let path = ep.url || ep.path;
+        if (path && baseUrl) {
+          try { path = new URL(path).pathname; } catch { /* keep as-is */ }
+        }
+        return { path, method: ep.method || 'GET', description: ep.description };
+      });
+    }
+    if (endpoints.length > 0) normalized.api_endpoints = endpoints;
+
+    // Build tools array
+    let tools = [];
+    if (Array.isArray(m.tools) && m.tools.length > 0) {
+      // Cars pattern: tools with name + description (may lack method/path)
+      tools = m.tools.map(t => typeof t === 'string' ? { name: t } : { ...t });
+    } else if (Array.isArray(m.mcp?.tools)) {
+      // Origin pattern: just tool name strings under mcp.tools
+      tools = m.mcp.tools.map(name => ({ name }));
+    }
+
+    // Enrich tools with descriptions from key_endpoints or api_endpoints
+    if (m.key_endpoints && typeof m.key_endpoints === 'object') {
+      for (const tool of tools) {
+        const suffix = tool.name.replace(/^[^_]*_/, ''); // origin_company → company
+        const path = m.key_endpoints[suffix] || m.key_endpoints[tool.name];
+        if (path && !tool.path) {
+          tool.path = path;
+          tool.method = 'GET';
+        }
+      }
+    }
+    // Also try matching against api_endpoints for descriptions
+    if (endpoints.length > 0) {
+      for (const tool of tools) {
+        if (tool.description) continue;
+        const suffix = tool.name.replace(/^[^_]*_/, '');
+        const ep = endpoints.find(e => {
+          const p = e.path || '';
+          return p.includes('/' + suffix) || p.endsWith('/' + suffix);
+        });
+        if (ep) {
+          if (!tool.path) { tool.path = ep.path; tool.method = ep.method; }
+          if (!tool.description) tool.description = ep.description;
+        }
+      }
+    }
+
+    normalized.tools = tools;
+
+    // Pass through other useful fields
+    if (m.coverage) normalized.coverage = m.coverage;
+    if (m.provenance) normalized.provenance = m.provenance;
+
+    return normalized;
   }
 
   /**

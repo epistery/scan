@@ -1103,19 +1103,30 @@ export default class SearchHandler {
         }
       } catch { /* no entity yet */ }
 
+      // Build endpoint lookup from api_endpoints for tools that lack path/method
+      const endpoints = manifest.api_endpoints || [];
+      const endpointMap = new Map();
+      for (const ep of endpoints) {
+        endpointMap.set(ep.path, ep);
+      }
+
+      // Enrich tools with api_endpoint data when the tool only has name+description
+      const tools = (manifest.tools || []).map(t => {
+        if (t.method && t.path) return { name: t.name, description: t.description, method: t.method, path: t.path, inputSchema: t.inputSchema };
+        // Try to correlate tool name to an api_endpoint (e.g. cars_search → /api/search)
+        const suffix = t.name.replace(/^[^_]*_/, ''); // cars_search → search
+        const matched = endpoints.find(ep => ep.path.endsWith('/' + suffix));
+        if (matched) return { name: t.name, description: t.description, method: matched.method, path: matched.path, inputSchema: t.inputSchema };
+        return { name: t.name, description: t.description };
+      });
+
       const result = {
         type: 'Skill',
         domain: ds.domain,
         name: manifest.name || `${ds.name}`,
         mission: manifest.mission || manifest.description || ds.label,
         topics: ds.topics,
-        tools: (manifest.tools || []).map(t => ({
-          name: t.name,
-          description: t.description,
-          method: t.method,
-          path: t.path,
-          inputSchema: t.inputSchema
-        })),
+        tools,
         topicScore: Math.round(match.score * 100),
         trustScore,
         trustLabel: trustLabel(trustScore),
@@ -1124,13 +1135,25 @@ export default class SearchHandler {
         lastChecked: new Date()
       };
 
+      // Include MCP endpoint and API base when available
+      if (manifest.mcp_endpoint) result.mcp_endpoint = manifest.mcp_endpoint;
+      if (manifest.api_base) result.api_base = manifest.api_base;
+      if (endpoints.length > 0) result.api_endpoints = endpoints;
+
       // Optionally pre-fetch initial results from the skill's search tool
-      const searchTool = (manifest.tools || []).find(t =>
-        t.name === 'search' || t.name === 'query'
+      const searchTool = tools.find(t =>
+        t.name === 'search' || t.name === 'query' || t.name?.endsWith('_search')
       );
-      if (searchTool && searchTool.path) {
+      const searchPath = searchTool?.path || endpoints.find(ep => ep.path?.includes('/search'))?.path;
+      if (searchPath) {
         try {
-          let url = `${ds.url}${searchTool.path}`.replace('{query}', encodeURIComponent(query));
+          let url = `${ds.url}${searchPath}`;
+          // Append query param — handle both template and plain paths
+          if (searchPath.includes('{query}')) {
+            url = url.replace('{query}', encodeURIComponent(query));
+          } else {
+            url += (url.includes('?') ? '&' : '?') + 'q=' + encodeURIComponent(query) + '&limit=3';
+          }
           const controller = new AbortController();
           const timeout = setTimeout(() => controller.abort(), 5000);
           const resp = await fetch(url, {
@@ -1167,18 +1190,41 @@ export default class SearchHandler {
     const tool = (manifest.tools || []).find(t => t.name === toolName);
     if (!tool) throw new Error(`Unknown tool "${toolName}" in skill "${skillName}"`);
 
-    // Build URL from tool path and params
+    // Resolve path: tool.path, or correlate to api_endpoints, or build from tool name
     let urlPath = tool.path;
-    for (const [key, value] of Object.entries(params)) {
-      urlPath = urlPath.replace(`{${key}}`, encodeURIComponent(value));
+    if (!urlPath) {
+      const suffix = toolName.replace(/^[^_]*_/, '');
+      const ep = (manifest.api_endpoints || []).find(e => e.path?.endsWith('/' + suffix));
+      if (ep) urlPath = ep.path;
     }
-    const url = `${ds.url}${urlPath}`;
+    if (!urlPath) throw new Error(`No endpoint path for tool "${toolName}" in skill "${skillName}"`);
+
+    // Substitute path params and build query string for remaining params
+    const usedParams = new Set();
+    for (const [key, value] of Object.entries(params)) {
+      if (urlPath.includes(`{${key}}`) || urlPath.includes(`:${key}`)) {
+        urlPath = urlPath.replace(`{${key}}`, encodeURIComponent(value));
+        urlPath = urlPath.replace(`:${key}`, encodeURIComponent(value));
+        usedParams.add(key);
+      }
+    }
+
+    // Append remaining params as query string for GET requests
+    const method = tool.method || 'GET';
+    let url = `${ds.url}${urlPath}`;
+    if (method === 'GET') {
+      const qs = Object.entries(params)
+        .filter(([k]) => !usedParams.has(k))
+        .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
+        .join('&');
+      if (qs) url += (url.includes('?') ? '&' : '?') + qs;
+    }
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 10000);
     try {
       const resp = await fetch(url, {
-        method: tool.method || 'GET',
+        method,
         headers: { 'Accept': 'application/json' },
         signal: controller.signal
       });
