@@ -144,6 +144,24 @@ export default class EpisteryScan {
     router.use('/api/feed', feedHandler.routes());
     router.use('/api/mcp', mcpProxy.routes());
 
+    // Skill proxy — top-level alias for /api/search/skill/:name/call
+    router.get('/api/skill/:name/call', async (req, res) => {
+      try {
+        const skillName = req.params.name;
+        const toolName = req.query.tool;
+        if (!toolName) {
+          return res.status(400).json({ error: 'Query parameter "tool" is required' });
+        }
+        const params = { ...req.query };
+        delete params.tool;
+        const result = await searchHandler.proxySkillCall(skillName, toolName, params);
+        res.json(result);
+      } catch (error) {
+        console.error('[scan] Skill proxy error:', error.message);
+        res.status(error.message.includes('Unknown') ? 404 : 502).json({ error: error.message });
+      }
+    });
+
     // Health check
     router.get('/health', (req, res) => {
       res.json({
@@ -387,13 +405,29 @@ if (import.meta.url === (await import('url')).pathToFileURL(process.argv[1]).hre
           stats: { url: '/api/search/stats', method: 'GET', description: 'Index statistics — domains, concepts, verified count.' },
           submit: { url: '/api/search/submit', method: 'POST', description: 'Submit a domain for discovery. Body: { domain }.' },
           mcpCategories: { url: '/api/mcp/categories', method: 'GET', description: 'MCP service categories from the registry.' },
-          mcpSearch: { url: '/api/mcp/search?q={query}', method: 'GET', description: 'Search MCP services by name or keyword.' }
+          mcpSearch: { url: '/api/mcp/search?q={query}', method: 'GET', description: 'Search MCP services by name or keyword.' },
+          skillProxy: { url: '/api/skill/{name}/call?tool={tool}&query={query}', method: 'GET', description: 'Proxy a tool call to a registered data source skill.' }
         },
         stats: {
           indexedDomains: domainCount,
           monitoredContracts: monitorCount,
           totalEvents: eventCount
         },
+        skills: (scan.ingestion?.domainDiscovery?.dataSources || [])
+          .filter(ds => ds.skillManifest)
+          .map(ds => ({
+            name: ds.skillManifest.name || ds.name,
+            domain: ds.domain,
+            mission: ds.skillManifest.mission || ds.skillManifest.description || ds.label,
+            topics: ds.topics,
+            tools: (ds.skillManifest.tools || []).map(t => ({
+              name: t.name,
+              description: t.description,
+              method: t.method,
+              path: t.path,
+              inputSchema: t.inputSchema
+            }))
+          })),
         coreConcepts: [
           { term: 'AI Discovery', definition: 'Web standard where domains publish /.well-known/ai manifests for AI agent consumption' },
           { term: 'DomainAgent', definition: 'Blockchain contract that links a domain name to an on-chain identity' },

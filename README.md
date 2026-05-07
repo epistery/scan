@@ -4,13 +4,16 @@ Search the signed web. Cross-chain blockchain explorer, AI discovery indexer, an
 
 **Live at:** https://epistery.io
 
-Epistery Scan indexes three kinds of entities through a unified architecture:
+Epistery Scan indexes four kinds of entities through a unified architecture:
 
 - **Blockchain contracts** on Ethereum and Polygon (Agents, Identity Contracts, Campaign Wallets)
 - **AI Discovery manifests** published at `/.well-known/ai` per the [Rootz AI Discovery Standard](https://rootz.global/ai/standard.md)
 - **MCP services** via federated search to [mcp-registry](https://mcp.epistery.io) (6,000+ services with live tool schemas)
+- **Data source skills** — external sites that publish skill manifests describing callable tools for AI agents
 
 Both domain manifests and blockchain contracts are first-class entities. A domain publishing a signed manifest is architecturally equivalent to a blockchain contract -- DNS is the trust substrate instead of a chain.
+
+Scan is not traditional search. AI agents are the primary consumers. For data source skills, the search pipeline returns **skill orientation** — which skills match a query, what tools they expose, and how to call them — rather than proxied results.
 
 Scan also acts as a **multisite host**: it owns ports 80/443, provisions TLS via Certify, and spawns child services (like mcp-registry) through the Harness. Incoming requests are routed by hostname -- `epistery.io` hits scan, `mcp.epistery.io` is proxied to the child.
 
@@ -35,6 +38,7 @@ index.mjs                         Express server, TLS, Harness, route mounting
   |           IdentityContractInterpreter.mjs   IdentityContract.sol -- multi-sig rivets
   |           CampaignWalletInterpreter.mjs     CampaignWallet.sol -- ad campaigns, payouts
   |           AIDiscoveryInterpreter.mjs        Web manifests via DomainDiscovery
+  |           DataSourceInterpreter.mjs         Configured data source skills
   |
   +-- handlers/
   |     Search.mjs                Federated search — signed-web + harness children + @delegation
@@ -71,6 +75,7 @@ Registered types:
 | IdentityContract | blockchain | IdentityContractInterpreter | IdentityContract.sol -- multi-sig identity binding via rivets |
 | CampaignWallet | blockchain | CampaignWalletInterpreter | CampaignWallet.sol -- ad campaign budgets and publisher payouts |
 | AIDiscovery | web | AIDiscoveryInterpreter | `/.well-known/ai` manifests fetched via DomainDiscovery |
+| DataSource | config | DataSourceInterpreter | Registered data source skills with callable tools |
 
 ### Ingestion
 
@@ -82,6 +87,8 @@ Registered types:
 - `syncDomain(domain)` -- the interpreter-compatible core: fetch manifest, verify signature, fetch tiers, store entity, record event. Returns `{ entity, manifest }` or null.
 - `checkDomain(domain)` -- crawl wrapper around `syncDomain`: manages crawl state (`lastChecked`, `nextCheck`, `status`) and triggers domain discovery from manifest links.
 - `seedKnownDomains()`, `discoverFromAgents()`, `discoverDomains()` -- populate the domain crawl queue.
+
+**Data source skills**: `DomainDiscovery` also manages registered data sources from `[datasources.*]` config sections. On startup, `_loadDataSourcesConfig()` reads each entry's URL, label, and topic keywords. `syncDataSourceSkills()` fetches each source's skill manifest at `/.well-known/ai/skill.json`, caching the full tool definitions. Data source domains are seeded alongside regular domains for trust scoring.
 
 ### Harness (Multisite Host)
 
@@ -107,7 +114,8 @@ Each child is spawned with `UPSTREAM=1` and a sequential port starting at 53900.
 1. **Signed web** — MongoDB full-text search across indexed `/.well-known/ai` manifests
 2. **Blockchain** — direct chain lookup for `0x...` addresses
 3. **Harness children** — fan-out GET to mcp-registry and future children, results merged and normalized
-4. **`@service` delegation** — queries starting with `@service-name` are routed to a live MCP endpoint:
+4. **Skill orientation** — registered data source skills are scored against query keywords by topic match. Matching skills return their full tool manifests so AI agents know what to call and how. Optionally pre-fetches initial results from the skill's search tool.
+5. **`@service` delegation** — queries starting with `@service-name` are routed to a live MCP endpoint:
    - Calls mcp-registry's `/api/service/:name/tools` to get the live tool catalog
    - Picks the best-matching tool via keyword scoring
    - Calls `/api/service/:name/call` with the tool and query arguments
@@ -139,6 +147,7 @@ All endpoints return JSON. No authentication required for read operations.
 | `/api/search/entity/:id` | GET | Full details for a specific domain or address |
 | `/api/search/stats` | GET | Index statistics |
 | `/api/search/submit` | POST | Submit domain for indexing `{ domain }` |
+| `/api/skill/:name/call` | GET | Proxy a tool call to a registered data source skill |
 
 Query types:
 - **`0x...` address** — direct blockchain lookup
@@ -210,7 +219,46 @@ The main search page (`/`) renders results with **type-aware tabs** driven by `g
 - **Concepts** -- glossary from `manifest.coreConcepts[]` with term and definition
 - **Raw JSON** -- formatted manifest source
 
+**Skill entities** (DataSource) -- tabs: Overview, Tools, Manifest
+
+- **Overview** -- skill name, domain link, trust badge, mission statement, topic tags
+- **Tools** -- detailed tool list with method, path, and input schema for each
+- **Manifest** -- raw skill manifest JSON
+
 The AI Discovery browser (`/discovery`) provides a dedicated view of all indexed domains.
+
+## Data Source Skill Spec
+
+External sites publish a skill manifest at `/.well-known/ai/skill.json`. The shape follows the epistery agent `epistery.json` pattern with added `mission` and `topics` fields for AI orientation:
+
+```json
+{
+  "name": "rootz/vehicles",
+  "version": "1.0.0",
+  "description": "Authoritative vehicle specifications and provenance",
+  "mission": "Verified vehicle data from manufacturer and registration sources",
+  "topics": ["car", "vehicle", "vin", "automobile", "truck"],
+  "tools": [
+    {
+      "name": "search",
+      "description": "Search vehicles by make, model, year, VIN, or free text",
+      "method": "GET",
+      "path": "/api/query?q={query}",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": { "type": "string", "description": "Free text search" }
+        },
+        "required": ["query"]
+      }
+    }
+  ]
+}
+```
+
+When an AI agent queries scan for "vehicle", the search pipeline scores data source topics against the query and returns `Skill`-type results containing the full tool manifest, trust score, and optionally pre-fetched initial results. The AI then knows exactly which tools to call and how.
+
+The skill proxy endpoint (`/api/skill/:name/call?tool=search&query=honda`) routes through scan so responses carry scan's attribution signature.
 
 ## Event Interpretation
 
@@ -260,6 +308,22 @@ autostart=false
 **Harness**: Maps hostnames to child service directories. Each child must have `src/server.js`. Leave empty for standalone operation.
 
 **Important — the harness key is the service's canonical hostname, not a routing alias.** `handlers/McpProxy.mjs` hardcodes `MCP_HOST = 'mcp.epistery.io'` and matches child responses by that exact hostname. Using `mcp.localhost` or similar will spawn the child and pass health checks, but the UI will report *"MCP Registry unavailable — running in dev mode without harness"*. The hostname is an identity key (see shadow-DNS config below), not just a route.
+
+**Data sources**: Register external data source skills under `[datasources.*]` sections:
+
+```ini
+[datasources.vehicles]
+url=https://cars.rootz.global
+label=Vehicle Registry
+topics=car,vehicle,vin,automobile,truck,make,model
+
+[datasources.provenance]
+url=https://origin.rootz.global
+label=Provenance Registry
+topics=origin,provenance,qr,physical,authenticity,product
+```
+
+Each entry has a name (the INI key), a base URL, a human label, and comma-separated topic keywords for query routing. On startup, scan fetches each source's skill manifest at `/.well-known/ai/skill.json` to get full tool definitions.
 
 **Ingestion**: `autostart=false` (default) means no automatic RPC polling. Set `true` on the production host. When disabled, manual ingestion still works via `/api/monitor` and `/api/fetch`.
 
@@ -322,13 +386,15 @@ The dev/prod toggle is driven entirely by whether `[profile] email` is set in co
 | `ingestion/ChainConnector.mjs` | Blockchain RPC interface |
 | `ingestion/DomainDiscovery.mjs` | Domain crawling and manifest verification |
 | `ingestion/interpreters/*.mjs` | One interpreter per entity type |
-| `handlers/Search.mjs` | Federated search with @service delegation |
+| `ingestion/interpreters/DataSourceInterpreter.mjs` | Skill manifest interpreter for configured data sources |
+| `handlers/Search.mjs` | Federated search with skill orientation and @service delegation |
 | `handlers/Monitor.mjs` | Monitor CRUD, type validation against registry |
 | `handlers/Event.mjs` | Event queries, aggregation, timeline |
 | `handlers/Discovery.mjs` | Domain submission and listing |
 | `handlers/Fetch.mjs` | On-demand chain data fetching |
 | `handlers/Feed.mjs` | Activity feed |
 | `public/index.html` | Search UI with type-aware tab rendering |
+| `public/script/expand.js` | Detail-view tab rendering for all entity types |
 | `public/discovery.html` | AI Discovery browser |
 
 ## Reference

@@ -4,6 +4,7 @@ import AgentInterpreter from './interpreters/AgentInterpreter.mjs';
 import IdentityContractInterpreter from './interpreters/IdentityContractInterpreter.mjs';
 import CampaignWalletInterpreter from './interpreters/CampaignWalletInterpreter.mjs';
 import AIDiscoveryInterpreter from './interpreters/AIDiscoveryInterpreter.mjs';
+import DataSourceInterpreter from './interpreters/DataSourceInterpreter.mjs';
 
 /**
  * IngestionManager
@@ -42,6 +43,10 @@ export default class IngestionManager {
     });
     this.registry.register('AIDiscovery', aiDiscovery, { source: 'web' });
     this.domainDiscovery = aiDiscovery.domainDiscovery;
+
+    // Register data source interpreter
+    const dataSource = new DataSourceInterpreter(this.database, this.domainDiscovery);
+    this.registry.register('DataSource', dataSource, { source: 'config' });
 
     console.log(`[ingestion] Registered types: ${this.registry.list().join(', ')}`);
 

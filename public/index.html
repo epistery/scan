@@ -383,6 +383,48 @@
       font-weight: 600;
       margin-left: 0.35rem;
     }
+
+    /* --- Skill results --- */
+    .result-skill {
+      border-left: 3px solid #009688;
+    }
+
+    .badge-source-skill { background: #e0f2f1; color: #00695c; }
+
+    .skill-tools {
+      margin-top: 0.5rem;
+      font-size: 0.85rem;
+      color: #555;
+    }
+
+    .skill-tool-item {
+      display: flex;
+      gap: 0.5rem;
+      align-items: baseline;
+      margin-top: 0.25rem;
+    }
+
+    .skill-tool-name {
+      font-weight: 600;
+      font-family: monospace;
+      font-size: 0.82rem;
+      color: #00695c;
+    }
+
+    .skill-tool-desc {
+      font-size: 0.82rem;
+      color: #777;
+    }
+
+    .topic-tag {
+      display: inline-block;
+      padding: 0.12rem 0.45rem;
+      background: #e0f2f1;
+      border-radius: 3px;
+      font-size: 0.72rem;
+      color: #00695c;
+      font-weight: 600;
+    }
   </style>
 </head>
 <body>
@@ -523,6 +565,7 @@
     }
 
     function renderResult(r) {
+      if (r.type === 'Skill') return renderSkillResult(r);
       if (r.type === 'MCPService') return renderMcpResult(r);
       if (r.type === 'Wallet' || r.type === 'Contract') return renderWalletResult(r);
 
@@ -662,6 +705,57 @@
           ${tokensHtml}
           ${contractHtml}
           ${txHtml}
+          ${expandLink}
+        </div>
+      `;
+    }
+
+    function renderSkillResult(r) {
+      const trustBadge = ExpandResult.getTrustBadge(r);
+      const sourceBadge = '<span class="badge-source badge-source-skill">Skill</span>';
+      const toolsBadge = r.tools && r.tools.length
+        ? `<span class="badge-tools">${r.tools.length} tool${r.tools.length === 1 ? '' : 's'}</span>`
+        : '';
+
+      const domain = r.domain
+        ? `<a class="result-domain" href="https://${r.domain}" target="_blank" rel="noopener">${r.domain}</a>`
+        : '';
+
+      const mission = r.mission
+        ? `<div class="result-mission">${escapeHtml(r.mission)}</div>`
+        : '';
+
+      const topics = r.topics && r.topics.length > 0
+        ? `<div class="result-concepts">${r.topics.map(t => `<span class="topic-tag">${escapeHtml(t)}</span>`).join('')}</div>`
+        : '';
+
+      const tools = r.tools && r.tools.length > 0
+        ? `<div class="skill-tools"><strong>Tools:</strong>${r.tools.map(t =>
+            `<div class="skill-tool-item"><span class="skill-tool-name">${escapeHtml(t.name)}</span><span class="skill-tool-desc">${escapeHtml(t.description || '')}</span></div>`
+          ).join('')}</div>`
+        : '';
+
+      const metaParts = [];
+      if (r.topicScore != null) metaParts.push(`topic match: ${r.topicScore}%`);
+      if (r.discoveryMethod) metaParts.push(`via ${r.discoveryMethod}`);
+      const meta = metaParts.length > 0
+        ? `<div class="result-meta">${metaParts.join(' &middot; ')}</div>`
+        : '';
+
+      const entityId = r.name || r.domain;
+      const expandLink = `<div class="result-actions"><a href="javascript:void(0)" onclick="ExpandResult.toggle('${escapeAttr(entityId)}')">Expand</a></div>`;
+
+      return `
+        <div class="result result-skill" id="card-${escapeAttr(entityId)}">
+          <div class="result-header">
+            <span class="result-name">${escapeHtml(r.name)}</span>
+            ${domain}
+            <span class="result-trust">${trustBadge}${toolsBadge}${sourceBadge}</span>
+          </div>
+          ${mission}
+          ${topics}
+          ${tools}
+          ${meta}
           ${expandLink}
         </div>
       `;

@@ -210,6 +210,30 @@ export default class SearchHandler {
     });
 
     /**
+     * Proxy a tool call to a registered data source skill
+     * GET /api/search/skill/:name/call?tool=search&query=honda+civic
+     */
+    router.get('/skill/:name/call', async (req, res) => {
+      try {
+        const skillName = req.params.name;
+        const toolName = req.query.tool;
+        if (!toolName) {
+          return res.status(400).json({ error: 'Query parameter "tool" is required' });
+        }
+
+        // Collect all other query params as tool parameters
+        const params = { ...req.query };
+        delete params.tool;
+
+        const result = await this.proxySkillCall(skillName, toolName, params);
+        res.json(result);
+      } catch (error) {
+        console.error('[search] Skill proxy error:', error.message);
+        res.status(error.message.includes('Unknown') ? 404 : 502).json({ error: error.message });
+      }
+    });
+
+    /**
      * Submit a domain for indexing
      * POST /api/search/submit { domain: "example.com" }
      */
@@ -333,6 +357,17 @@ export default class SearchHandler {
     } catch (err) {
       // Text index may not exist yet on empty DB — fall through to regex
       console.warn('[search] Text search failed, falling back to regex:', err.message);
+    }
+
+    // Skill orientation — match query to registered data source skills
+    try {
+      const skills = await this._orientToSkills(q, limit);
+      if (skills.length > 0) {
+        results.results.push(...skills);
+        results.meta.sources.push('skill-registry');
+      }
+    } catch (err) {
+      console.warn('[search] Skill orientation failed:', err.message);
     }
 
     // Capability-based routing — check if any indexed source can handle this query live
@@ -1017,6 +1052,158 @@ export default class SearchHandler {
     }
 
     return results;
+  }
+
+  /**
+   * Orient query to registered data source skills.
+   * Scores each data source's topics against query words.
+   * Returns Skill-type results with tool definitions for AI consumption.
+   */
+  async _orientToSkills(query, limit = 5) {
+    const dataSources = this.ingestion?.domainDiscovery?.dataSources;
+    if (!dataSources || dataSources.length === 0) return [];
+
+    const words = query.toLowerCase().split(/\s+/).filter(w => w.length > 2);
+    if (words.length === 0) return [];
+
+    const matches = [];
+
+    for (const ds of dataSources) {
+      const topics = ds.topics || [];
+      if (topics.length === 0) continue;
+
+      // Score: how many query words match topic keywords
+      let score = 0;
+      for (const w of words) {
+        if (topics.some(t => t.includes(w) || w.includes(t))) score++;
+      }
+      if (score > 0) {
+        matches.push({ ds, score: score / words.length });
+      }
+    }
+
+    // Sort by score, take top matches above threshold
+    matches.sort((a, b) => b.score - a.score);
+    const threshold = 0.3;
+    const top = matches.filter(m => m.score >= threshold).slice(0, limit);
+
+    const results = [];
+    for (const match of top) {
+      const ds = match.ds;
+      const manifest = ds.skillManifest || {};
+
+      // Look up trust score from the domain's AIDiscovery entity
+      let trustScore = 0;
+      try {
+        const entity = await this.db.collection('entities').findOne({
+          address: ds.domain, type: 'AIDiscovery'
+        });
+        if (entity?.metadata?.trustScore != null) {
+          trustScore = entity.metadata.trustScore;
+        }
+      } catch { /* no entity yet */ }
+
+      const result = {
+        type: 'Skill',
+        domain: ds.domain,
+        name: manifest.name || `${ds.name}`,
+        mission: manifest.mission || manifest.description || ds.label,
+        topics: ds.topics,
+        tools: (manifest.tools || []).map(t => ({
+          name: t.name,
+          description: t.description,
+          method: t.method,
+          path: t.path,
+          inputSchema: t.inputSchema
+        })),
+        topicScore: Math.round(match.score * 100),
+        trustScore,
+        trustLabel: trustLabel(trustScore),
+        source: 'skill-registry',
+        discoveryMethod: 'config',
+        lastChecked: new Date()
+      };
+
+      // Optionally pre-fetch initial results from the skill's search tool
+      const searchTool = (manifest.tools || []).find(t =>
+        t.name === 'search' || t.name === 'query'
+      );
+      if (searchTool && searchTool.path) {
+        try {
+          let url = `${ds.url}${searchTool.path}`.replace('{query}', encodeURIComponent(query));
+          const controller = new AbortController();
+          const timeout = setTimeout(() => controller.abort(), 5000);
+          const resp = await fetch(url, {
+            headers: { 'Accept': 'application/json' },
+            signal: controller.signal
+          });
+          clearTimeout(timeout);
+          if (resp.ok) {
+            result.initialResults = await resp.json();
+          }
+        } catch {
+          // Pre-fetch failed — skill orientation still valuable without initial data
+        }
+      }
+
+      results.push(result);
+    }
+
+    return results;
+  }
+
+  /**
+   * Proxy a tool call to a registered data source skill.
+   * Returns the data source's result wrapped with attribution.
+   */
+  async proxySkillCall(skillName, toolName, params) {
+    const dataSources = this.ingestion?.domainDiscovery?.dataSources;
+    if (!dataSources) throw new Error('Data sources not available');
+
+    const ds = dataSources.find(d => d.name === skillName);
+    if (!ds) throw new Error(`Unknown skill: ${skillName}`);
+
+    const manifest = ds.skillManifest || {};
+    const tool = (manifest.tools || []).find(t => t.name === toolName);
+    if (!tool) throw new Error(`Unknown tool "${toolName}" in skill "${skillName}"`);
+
+    // Build URL from tool path and params
+    let urlPath = tool.path;
+    for (const [key, value] of Object.entries(params)) {
+      urlPath = urlPath.replace(`{${key}}`, encodeURIComponent(value));
+    }
+    const url = `${ds.url}${urlPath}`;
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
+    try {
+      const resp = await fetch(url, {
+        method: tool.method || 'GET',
+        headers: { 'Accept': 'application/json' },
+        signal: controller.signal
+      });
+      clearTimeout(timeout);
+
+      if (!resp.ok) {
+        throw new Error(`Skill responded with ${resp.status}`);
+      }
+
+      const data = await resp.json();
+      return {
+        skill: skillName,
+        tool: toolName,
+        domain: ds.domain,
+        data,
+        attribution: {
+          source: ds.url,
+          label: ds.label,
+          proxiedBy: 'epistery-scan'
+        }
+      };
+    } catch (err) {
+      clearTimeout(timeout);
+      throw err;
+    }
   }
 
   _formatBalance(weiStr, decimals = 18) {

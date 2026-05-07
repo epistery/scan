@@ -82,6 +82,13 @@ const ExpandResult = (function () {
         { id: 'manifest', label: 'Manifest' }
       ];
     }
+    if (type === 'Skill') {
+      return [
+        { id: 'overview', label: 'Overview' },
+        { id: 'tools',    label: 'Tools' },
+        { id: 'manifest', label: 'Manifest' }
+      ];
+    }
     return [
       { id: 'overview', label: 'Overview' },
       { id: 'trust',    label: 'Trust' },
@@ -160,6 +167,9 @@ const ExpandResult = (function () {
         break;
       case 'trust':
         body.innerHTML = renderTrustTab(r);
+        break;
+      case 'tools':
+        body.innerHTML = renderToolsTab(r);
         break;
       case 'activity':
         if (r.type === 'Wallet' || r.type === 'Contract') {
@@ -251,6 +261,26 @@ const ExpandResult = (function () {
       html += '<div class="expand-section-title">Metadata</div>';
       html += metaParts.map(m => `<div style="font-size:0.85rem;color:#666;">${m}</div>`).join('');
       html += '</div>';
+    }
+
+    // Skill-specific info
+    if (r.type === 'Skill') {
+      if (r.tools && r.tools.length > 0) {
+        html += '<div class="expand-section">';
+        html += `<div class="expand-section-title">${r.tools.length} Tool${r.tools.length === 1 ? '' : 's'}</div>`;
+        r.tools.forEach(t => {
+          html += `<div><strong style="color:#00695c;font-family:monospace;">${escapeHtml(t.name)}</strong>`;
+          if (t.description) html += ` &mdash; ${escapeHtml(t.description)}`;
+          html += '</div>';
+        });
+        html += '</div>';
+      }
+      if (r.topics && r.topics.length > 0) {
+        html += '<div class="expand-section">';
+        html += '<div class="expand-section-title">Topics</div>';
+        html += `<div class="result-concepts">${r.topics.map(t => `<span class="concept-tag" style="background:#e0f2f1;color:#00695c;">${escapeHtml(t)}</span>`).join('')}</div>`;
+        html += '</div>';
+      }
     }
 
     // MCP-specific info
@@ -359,6 +389,50 @@ const ExpandResult = (function () {
       html += '</div>';
     } else {
       html += '<div style="padding:1rem;color:#999;">No trust signal data available.</div>';
+    }
+
+    return html;
+  }
+
+  function renderToolsTab(r) {
+    let html = '';
+    const tools = r.tools || [];
+
+    if (tools.length === 0) {
+      return '<div style="padding:1rem;color:#999;">No tools defined for this skill.</div>';
+    }
+
+    html += '<div class="expand-section">';
+    html += `<div class="expand-section-title">${tools.length} Tool${tools.length === 1 ? '' : 's'}</div>`;
+
+    for (const tool of tools) {
+      html += '<div style="margin-bottom:0.75rem;padding:0.5rem;background:#f8fffe;border-radius:4px;border:1px solid #e0f2f1;">';
+      html += `<div><strong style="color:#00695c;font-family:monospace;">${escapeHtml(tool.name)}</strong>`;
+      if (tool.method) html += ` <span style="font-size:0.75rem;color:#888;text-transform:uppercase;">${escapeHtml(tool.method)}</span>`;
+      html += '</div>';
+      if (tool.description) html += `<div style="font-size:0.85rem;color:#555;margin-top:0.2rem;">${escapeHtml(tool.description)}</div>`;
+      if (tool.path) html += `<div style="font-size:0.78rem;color:#999;font-family:monospace;margin-top:0.2rem;">${escapeHtml(tool.path)}</div>`;
+      if (tool.inputSchema && tool.inputSchema.properties) {
+        const props = Object.entries(tool.inputSchema.properties);
+        const required = tool.inputSchema.required || [];
+        html += '<div style="margin-top:0.3rem;font-size:0.78rem;">';
+        for (const [name, schema] of props) {
+          const req = required.includes(name) ? ' <span style="color:#c0392b;">*</span>' : '';
+          html += `<div style="color:#666;"><span style="font-family:monospace;color:#00695c;">${escapeHtml(name)}</span>${req}: ${escapeHtml(schema.description || schema.type || '')}</div>`;
+        }
+        html += '</div>';
+      }
+      html += '</div>';
+    }
+
+    html += '</div>';
+
+    // Topics
+    if (r.topics && r.topics.length > 0) {
+      html += '<div class="expand-section">';
+      html += '<div class="expand-section-title">Topics</div>';
+      html += `<div class="result-concepts">${r.topics.map(t => `<span class="concept-tag" style="background:#e0f2f1;color:#00695c;">${escapeHtml(t)}</span>`).join('')}</div>`;
+      html += '</div>';
     }
 
     return html;

@@ -27,12 +27,14 @@ export default class DomainDiscovery {
     this.fetchTimeout = config.fetchTimeout || 10000; // 10 seconds
     this.seedDomains = config.seedDomains || ['epistery.io', 'rootz.global', 'geist.social', 'michael.sprague.com', 'findbet.com', 'libertyproject.com'];
     this.prioritySources = []; // domains from [sources] config — checked hourly
+    this.dataSources = [];     // data source skills from [datasources] config
     this.isRunning = false;
     this.pollTimer = null;
     this.priorityTimer = null;
 
     // Load priority sources from epistery config [sources] section
     this._loadSourcesConfig();
+    this._loadDataSourcesConfig();
   }
 
   /**
@@ -61,6 +63,81 @@ export default class DomainDiscovery {
       }
     } catch (err) {
       console.warn('[discovery] Could not load [sources] config:', err.message);
+    }
+  }
+
+  /**
+   * Read [datasources] from epistery Config on startup.
+   * Each subsection [datasources.name] has url, label, topics.
+   * These become registered data source skills for AI orientation.
+   */
+  _loadDataSourcesConfig() {
+    try {
+      const cfg = new Config();
+      cfg.setPath('/');
+      const datasources = cfg.data?.datasources;
+      if (!datasources || typeof datasources !== 'object') return;
+
+      for (const [name, entry] of Object.entries(datasources)) {
+        if (!entry.url) {
+          console.warn(`[discovery] Data source "${name}" has no url, skipping`);
+          continue;
+        }
+        try {
+          const hostname = new URL(entry.url).hostname;
+          const topics = (entry.topics || '').split(',').map(t => t.trim()).filter(Boolean);
+          this.dataSources.push({
+            name,
+            url: entry.url,
+            domain: hostname,
+            label: entry.label || name,
+            topics,
+            skillManifest: null
+          });
+        } catch {
+          console.warn(`[discovery] Invalid data source URL for "${name}": ${entry.url}`);
+        }
+      }
+
+      if (this.dataSources.length > 0) {
+        console.log(`[discovery] Loaded ${this.dataSources.length} data sources: ${this.dataSources.map(s => s.name).join(', ')}`);
+      }
+    } catch (err) {
+      console.warn('[discovery] Could not load [datasources] config:', err.message);
+    }
+  }
+
+  /**
+   * Fetch skill manifests for all registered data sources.
+   * Tries /.well-known/ai/skill.json first, falls back to /.well-known/ai.
+   * Caches the manifest on each data source entry.
+   */
+  async syncDataSourceSkills() {
+    if (this.dataSources.length === 0) return;
+    console.log(`[discovery] Syncing skill manifests for ${this.dataSources.length} data sources...`);
+
+    for (const ds of this.dataSources) {
+      try {
+        // Try dedicated skill manifest first
+        let manifest = await this.fetchJSON(`${ds.url}/.well-known/ai/skill.json`);
+
+        // Fall back to standard AI discovery manifest
+        if (!manifest) {
+          const aiManifest = await this.fetchJSON(`${ds.url}/.well-known/ai`);
+          if (aiManifest && (aiManifest.tools || aiManifest.datasets)) {
+            manifest = aiManifest;
+          }
+        }
+
+        if (manifest) {
+          ds.skillManifest = manifest;
+          console.log(`[discovery] ${ds.name}: fetched skill manifest (${(manifest.tools || []).length} tools)`);
+        } else {
+          console.log(`[discovery] ${ds.name}: no skill manifest found at ${ds.domain}`);
+        }
+      } catch (err) {
+        console.warn(`[discovery] ${ds.name}: skill manifest fetch failed:`, err.message);
+      }
     }
   }
 
@@ -750,6 +827,23 @@ export default class DomainDiscovery {
         console.log(`[discovery] Seeded priority source: ${source.domain} (${source.name})`);
       }
     }
+
+    // Seed data source domains so they get trust-scored via normal discovery
+    for (const ds of this.dataSources) {
+      const existing = await this.database.getDomain(ds.domain);
+      if (!existing) {
+        await this.database.addDomain({
+          domain: ds.domain,
+          active: true,
+          status: 'pending',
+          discoveredFrom: `datasource:${ds.name}`
+        });
+        console.log(`[discovery] Seeded data source: ${ds.domain} (${ds.name})`);
+      }
+    }
+
+    // Fetch skill manifests for data sources
+    await this.syncDataSourceSkills();
   }
 
   /**
