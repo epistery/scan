@@ -207,7 +207,14 @@ export default class DomainDiscovery {
     if (templateEndpoints && typeof templateEndpoints === 'object') {
       for (const tool of tools) {
         const suffix = tool.name.replace(/^[^_]*_/, ''); // origin_company → company
-        const raw = templateEndpoints[suffix] || templateEndpoints[tool.name];
+        let raw = templateEndpoints[suffix] || templateEndpoints[tool.name];
+        // Fuzzy: check if any template path contains /{suffix} (e.g. /company/ for "company")
+        if (!raw) {
+          for (const [, v] of Object.entries(templateEndpoints)) {
+            const path = v.split(/\s*[—–]\s*/)[0];
+            if (path.includes('/' + suffix) && path.includes('{')) { raw = v; break; }
+          }
+        }
         if (raw) {
           // Entries may be "path — description"; split on em-dash
           const [pathPart, descPart] = raw.split(/\s*[—–]\s*/);
