@@ -114,6 +114,12 @@ export default class EpisteryScan {
       this.ingestion.start();
     } else {
       console.log(`[epistery-scan] Ingestion autostart disabled — no automatic RPC polling. Set ingestion.autostart=true in ~/.epistery/config to enable.`);
+      // Still sync data source skills even without full ingestion — lightweight HTTP fetches
+      if (this.ingestion.domainDiscovery?.dataSources?.length > 0) {
+        this.ingestion.domainDiscovery.syncDataSourceSkills().catch(err =>
+          console.warn('[epistery-scan] Data source skill sync failed:', err.message)
+        );
+      }
     }
 
     // Static files
