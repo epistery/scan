@@ -200,14 +200,20 @@ export default class DomainDiscovery {
       tools = m.mcp.tools.map(name => ({ name }));
     }
 
-    // Enrich tools with descriptions from key_endpoints or api_endpoints
-    if (m.key_endpoints && typeof m.key_endpoints === 'object') {
+    // Enrich tools with template paths from key_endpoints or _skill_discovery
+    const templateEndpoints = m.key_endpoints
+      || m._skill_discovery?.remember?.endpoints
+      || null;
+    if (templateEndpoints && typeof templateEndpoints === 'object') {
       for (const tool of tools) {
         const suffix = tool.name.replace(/^[^_]*_/, ''); // origin_company → company
-        const path = m.key_endpoints[suffix] || m.key_endpoints[tool.name];
-        if (path && !tool.path) {
-          tool.path = path;
+        const raw = templateEndpoints[suffix] || templateEndpoints[tool.name];
+        if (raw && !tool.path) {
+          // Entries may be "path — description"; split on em-dash
+          const [pathPart, descPart] = raw.split(/\s*[—–]\s*/);
+          tool.path = pathPart.trim();
           tool.method = 'GET';
+          if (descPart && !tool.description) tool.description = descPart.trim();
         }
       }
     }
