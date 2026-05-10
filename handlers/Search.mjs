@@ -1166,9 +1166,9 @@ export default class SearchHandler {
       if (searchPath) {
         try {
           let url = `${ds.url}${searchPath}`;
-          // Append query param — handle both template and plain paths
-          if (searchPath.includes('{query}')) {
-            url = url.replace('{query}', encodeURIComponent(query));
+          // Replace any template placeholder with the query
+          if (/\{[^}]+\}/.test(searchPath)) {
+            url = url.replace(/\{[^}]+\}/g, encodeURIComponent(query));
           } else {
             url += (url.includes('?') ? '&' : '?') + 'q=' + encodeURIComponent(query) + '&limit=3';
           }
