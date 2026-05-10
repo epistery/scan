@@ -1070,22 +1070,40 @@ export default class SearchHandler {
 
     for (const ds of dataSources) {
       const topics = ds.topics || [];
-      if (topics.length === 0) continue;
+      const manifest = ds.skillManifest || {};
 
-      // Score: how many query words match topic keywords
-      let score = 0;
-      for (const w of words) {
-        if (topics.some(t => t.includes(w) || w.includes(t))) score++;
+      // Build searchable text from topics + manifest description + tool names/descriptions
+      // Split on word boundaries (whitespace, hyphens, underscores, punctuation) for broad matching
+      const splitWords = (text) => text.toLowerCase().split(/[\s_\-,;:.()\/]+/).filter(w => w.length > 2);
+      const searchTerms = [...topics];
+      if (manifest.description) searchTerms.push(...splitWords(manifest.description));
+      if (manifest.mission) searchTerms.push(...splitWords(manifest.mission));
+      for (const t of (manifest.tools || [])) {
+        if (t.name) searchTerms.push(...splitWords(t.name));
+        if (t.description) searchTerms.push(...splitWords(t.description));
       }
-      if (score > 0) {
-        matches.push({ ds, score: score / words.length });
+
+      // Score: how many query words match any searchable term
+      let topicHits = 0;
+      let manifestHits = 0;
+      for (const w of words) {
+        if (topics.some(t => t.includes(w) || w.includes(t))) {
+          topicHits++;
+        } else if (searchTerms.some(t => t.includes(w) || w.includes(t))) {
+          manifestHits++;
+        }
+      }
+      // Topic hits full weight, manifest hits half weight
+      // Any match is worth including — sorting handles ranking
+      const score = (topicHits + manifestHits * 0.5) / words.length;
+      if (topicHits > 0 || manifestHits > 0) {
+        matches.push({ ds, score });
       }
     }
 
-    // Sort by score, take top matches above threshold
+    // Sort by score, take top matches
     matches.sort((a, b) => b.score - a.score);
-    const threshold = 0.3;
-    const top = matches.filter(m => m.score >= threshold).slice(0, limit);
+    const top = matches.slice(0, limit);
 
     const results = [];
     for (const match of top) {
