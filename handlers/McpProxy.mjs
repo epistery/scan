@@ -1,6 +1,6 @@
 import express from 'express';
 
-const MCP_HOST = 'mcp.epistery.io';
+const MCP_HOST = 'mcp.epistery.com';
 
 /**
  * McpProxy — thin proxy from epistery-scan to mcp-registry via harness.

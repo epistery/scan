@@ -2,20 +2,20 @@
 
 Search the signed web. Cross-chain blockchain explorer, AI discovery indexer, and multisite host for the Epistery ecosystem.
 
-**Live at:** https://epistery.io
+**Live at:** https://epistery.com
 
 Epistery Scan indexes four kinds of entities through a unified architecture:
 
 - **Blockchain contracts** on Ethereum and Polygon (Agents, Identity Contracts, Campaign Wallets)
 - **AI Discovery manifests** published at `/.well-known/ai` per the [Rootz AI Discovery Standard](https://rootz.global/ai/standard.md)
-- **MCP services** via federated search to [mcp-registry](https://mcp.epistery.io) (6,000+ services with live tool schemas)
+- **MCP services** via federated search to [mcp-registry](https://mcp.epistery.com) (6,000+ services with live tool schemas)
 - **Data source skills** — external sites that publish skill manifests describing callable tools for AI agents
 
 Both domain manifests and blockchain contracts are first-class entities. A domain publishing a signed manifest is architecturally equivalent to a blockchain contract -- DNS is the trust substrate instead of a chain.
 
 Scan is not traditional search. AI agents are the primary consumers. For data source skills, the search pipeline returns **skill orientation** — which skills match a query, what tools they expose, and how to call them — rather than proxied results.
 
-Scan also acts as a **multisite host**: it owns ports 80/443, provisions TLS via Certify, and spawns child services (like mcp-registry) through the Harness. Incoming requests are routed by hostname -- `epistery.io` hits scan, `mcp.epistery.io` is proxied to the child.
+Scan also acts as a **multisite host**: it owns ports 80/443, provisions TLS via Certify, and spawns child services (like mcp-registry) through the Harness. Incoming requests are routed by hostname -- `epistery.com` hits scan, `mcp.epistery.com` is proxied to the child.
 
 ## Architecture
 
@@ -96,7 +96,7 @@ Registered types:
 
 ```ini
 [harness]
-mcp.epistery.io=/home/.../mcp-registry
+mcp.epistery.com=/home/.../mcp-registry
 ```
 
 Each child is spawned with `UPSTREAM=1` and a sequential port starting at 53900. The harness:
@@ -297,7 +297,7 @@ username=epistery_user
 password=your_password
 
 [harness]
-mcp.epistery.io=/opt/mcp-registry
+mcp.epistery.com=/opt/mcp-registry
 
 [ingestion]
 autostart=false
@@ -307,7 +307,7 @@ autostart=false
 
 **Harness**: Maps hostnames to child service directories. Each child must have `src/server.js`. Leave empty for standalone operation.
 
-**Important — the harness key is the service's canonical hostname, not a routing alias.** `handlers/McpProxy.mjs` hardcodes `MCP_HOST = 'mcp.epistery.io'` and matches child responses by that exact hostname. Using `mcp.localhost` or similar will spawn the child and pass health checks, but the UI will report *"MCP Registry unavailable — running in dev mode without harness"*. The hostname is an identity key (see shadow-DNS config below), not just a route.
+**Important — the harness key is the service's canonical hostname, not a routing alias.** `handlers/McpProxy.mjs` hardcodes `MCP_HOST = 'mcp.epistery.com'` and matches child responses by that exact hostname. Using `mcp.localhost` or similar will spawn the child and pass health checks, but the UI will report *"MCP Registry unavailable — running in dev mode without harness"*. The hostname is an identity key (see shadow-DNS config below), not just a route.
 
 **Data sources**: Register external data source skills under `[datasources.*]` sections:
 
@@ -333,7 +333,7 @@ Each entry has a name (the INI key), a base URL, a human label, and comma-separa
 
 Each harness child reads its own scoped config from `~/.epistery/<hostname>/config.ini`. The hostname is an identity key (like a wallet address) — the child code does `config.setPath('/<hostname>')` to find it. Don't rename these for a local environment; they must match the same hostname used in `[harness]`.
 
-Example — `mcp-registry` reads MySQL creds from `~/.epistery/mcp.epistery.io/config.ini`:
+Example — `mcp-registry` reads MySQL creds from `~/.epistery/mcp.epistery.com/config.ini`:
 
 ```ini
 [mysql]

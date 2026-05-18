@@ -449,7 +449,7 @@ export default class SearchHandler {
    * 3. Call the tool and return results
    */
   async _delegateToService(serviceName, queryText, limit) {
-    const MCP_HOST = 'mcp.epistery.io';
+    const MCP_HOST = 'mcp.epistery.com';
 
     // Get live tool list
     const toolsResp = await this.harness.post(

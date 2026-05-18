@@ -25,7 +25,7 @@ export default class DomainDiscovery {
     this.pollInterval = config.pollInterval || 86400000; // 24 hours
     this.priorityInterval = config.priorityInterval || 3600000; // 1 hour for priority sources
     this.fetchTimeout = config.fetchTimeout || 10000; // 10 seconds
-    this.seedDomains = config.seedDomains || ['epistery.io', 'rootz.global', 'geist.social', 'michael.sprague.com', 'findbet.com', 'libertyproject.com'];
+    this.seedDomains = config.seedDomains || ['epistery.com', 'rootz.global', 'geist.social', 'michael.sprague.com', 'findbet.com', 'libertyproject.com'];
     this.prioritySources = []; // domains from [sources] config — checked hourly
     this.dataSources = [];     // data source skills from [datasources] config
     this.isRunning = false;
