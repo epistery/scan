@@ -444,7 +444,7 @@ if (import.meta.url === (await import('url')).pathToFileURL(process.argv[1]).hre
         coreConcepts: [
           { term: 'AI Discovery', definition: 'Web standard where domains publish /.well-known/ai manifests for AI agent consumption' },
           { term: 'DomainAgent', definition: 'Blockchain contract that links a domain name to an on-chain identity' },
-          { term: 'IdentityContract', definition: 'Multi-sig identity binding using rivets and thresholds' },
+          { term: 'IdentityContract', definition: 'On-chain identity owned by a wallet and authorized by one-of-N rivet devices; V3 (chat) variant adds messaging, ECDH key registry, and arbitrary transaction execution' },
           { term: 'CampaignWallet', definition: 'Smart contract managing ad campaign budgets and publisher payouts' }
         ],
         instructions: {

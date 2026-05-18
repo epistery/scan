@@ -261,6 +261,20 @@ export default class FeedHandler {
       return null;
     }
 
+    // Probe for IdentityContract first — both V1 (rootz/epistery) and V3 (chat)
+    // expose domain() and VERSION() too, so Agent's probe would falsely match
+    // them. getRivets() is unique to IdentityContract.
+    try {
+      const probeAbi = ['function getRivets() view returns (address[])'];
+      const contract = connector.getContract(address, probeAbi);
+      await withTimeout(contract.getRivets());
+      console.log(`[feed] Identified ${address} as IdentityContract`);
+      this.indexEntity(address, chain, 'IdentityContract', {}).catch(console.error);
+      return 'IdentityContract';
+    } catch (e) {
+      // Not an IdentityContract
+    }
+
     // Probe for DomainAgent — has domain() and VERSION()
     try {
       const probeAbi = [
@@ -290,20 +304,6 @@ export default class FeedHandler {
       return 'CampaignWallet';
     } catch (e) {
       // Not a CampaignWallet
-    }
-
-    // Probe for IdentityContract — has threshold()
-    try {
-      const probeAbi = [
-        'function threshold() view returns (uint256)'
-      ];
-      const contract = connector.getContract(address, probeAbi);
-      await withTimeout(contract.threshold());
-      console.log(`[feed] Identified ${address} as IdentityContract`);
-      this.indexEntity(address, chain, 'IdentityContract', {}).catch(console.error);
-      return 'IdentityContract';
-    } catch (e) {
-      // Not an IdentityContract
     }
 
     return null;
