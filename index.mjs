@@ -91,7 +91,12 @@ export default class EpisteryScan {
 
     const ingestionConfig = {
       chains: {},
-      pollInterval: episteryConfig.data.pollInterval || 300000
+      pollInterval: episteryConfig.data.pollInterval || 300000,
+      // epistery-app directory: where to reach the app for public-session
+      // enrichment ([app] url in config.ini). Unset → index names/addresses
+      // from the identities collection only.
+      appBaseUrl: this.config.appBaseUrl || episteryConfig.data.app?.url || '',
+      appPollInterval: episteryConfig.data.app?.pollInterval || 3600000
     };
 
     for (const entry of configuredChains()) {
@@ -120,6 +125,11 @@ export default class EpisteryScan {
           console.warn('[epistery-scan] Data source skill sync failed:', err.message)
         );
       }
+      // App identities live in scan's own DB — index them even with RPC polling
+      // off so named contracts are searchable regardless of ingestion mode.
+      this.ingestion.appDirectory?.sync().catch(err =>
+        console.warn('[epistery-scan] App directory sync failed:', err.message)
+      );
     }
 
     // Static files
@@ -465,7 +475,7 @@ if (import.meta.url === (await import('url')).pathToFileURL(process.argv[1]).hre
         }
       res.sendFile(path.join(__dirname, "public/memory.html"));
     });
-  
+
   // Bring up listeners. Two modes:
   //   - contactEmail present (config.ini [profile] email): HTTPS via Certify + HTTP.
   //   - No email: plain HTTP for dev clones.

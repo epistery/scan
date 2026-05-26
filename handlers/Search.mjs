@@ -288,7 +288,8 @@ export default class SearchHandler {
           { 'metadata.host': addrRegex },
           { 'metadata.verification.digitalName': addrRegex },
           { 'metadata.manifest._signature.digitalName': addrRegex },
-          { 'metadata.identityLinks.address': addrRegex }
+          { 'metadata.identityLinks.address': addrRegex },
+          { 'metadata.app.owner': addrRegex }
         ]
       }).limit(20).toArray();
 
@@ -396,7 +397,10 @@ export default class SearchHandler {
             { 'metadata.manifest.coreConcepts.term': searchRegex },
             { 'metadata.manifest.applications.name': searchRegex },
             { 'metadata.manifest.people.name': searchRegex },
-            { 'metadata.domain': searchRegex }
+            { 'metadata.domain': searchRegex },
+            { 'metadata.app.name': searchRegex },
+            { 'metadata.app.domain': searchRegex },
+            { 'metadata.app.sessions.name': searchRegex }
           ]
         })
         .sort({ _modified: -1 })
@@ -579,6 +583,7 @@ export default class SearchHandler {
     const org = manifest?.organization || {};
     const sig = entity.metadata?.verification || entity.metadata?.signature || {};
     const isDiscovery = entity.type === 'AIDiscovery';
+    const app = entity.metadata?.app || null;
 
     // Trust score: use stored value or derive from old verification fields
     let trustScore = entity.metadata?.trustScore;
@@ -592,13 +597,13 @@ export default class SearchHandler {
 
     const result = {
       // Identity
-      domain: isDiscovery ? entity.address : (entity.metadata?.domain || null),
-      name: org.name || entity.address,
+      domain: isDiscovery ? entity.address : (entity.metadata?.domain || app?.domain || null),
+      name: org.name || app?.name || entity.address,
       type: entity.type,
       chain: entity.chain,
 
       // Authored content
-      mission: org.mission || org.description || null,
+      mission: org.mission || org.description || app?.description || null,
       tagline: org.tagline || null,
       sector: org.sector || null,
 
@@ -634,6 +639,34 @@ export default class SearchHandler {
       lastChecked: entity._modified || entity._created
     };
 
+    // epistery-app identity — named contract + its public sessions
+    if (app) {
+      result.app = {
+        name: app.name || null,
+        domain: app.domain || null,
+        owner: app.owner || null,
+        profileUrl: app.profileUrl || null,
+        description: app.description || null,
+        sessions: (app.sessions || []).map(s => ({
+          kind: s.kind,
+          name: s.name || null,
+          description: s.description || null,
+          memberCount: s.memberCount ?? null,
+          lastActivity: s.lastActivity ?? null
+        }))
+      };
+      result.source = 'epistery-app';
+      result.discoveryMethod = result.discoveryMethod || 'app-directory';
+      // Give generic result UIs something to render: surface public sessions
+      // as "applications" when there's no manifest providing them.
+      if (result.applications.length === 0 && app.sessions?.length) {
+        result.applications = app.sessions.map(s => ({
+          name: s.name || s.kind,
+          description: s.description || null
+        }));
+      }
+    }
+
     return result;
   }
 
@@ -652,7 +685,7 @@ export default class SearchHandler {
    * Index statistics
    */
   async getStats() {
-    const [domainCount, signedCount, verifiedCount, totalEntities, conceptCount, trustDistribution] = await Promise.all([
+    const [domainCount, signedCount, verifiedCount, totalEntities, conceptCount, trustDistribution, appIdentities] = await Promise.all([
       this.db.collection('entities').countDocuments({ type: 'AIDiscovery' }),
       this.db.collection('entities').countDocuments({
         type: 'AIDiscovery',
@@ -692,7 +725,8 @@ export default class SearchHandler {
         const dist = { open: 0, discovered: 0, claimed: 0, trusted: 0, verified: 0 };
         for (const r of rows) dist[r._id] = r.count;
         return dist;
-      })
+      }),
+      this.db.collection('entities').countDocuments({ 'metadata.app': { $exists: true } })
     ]);
 
     return {
@@ -701,6 +735,7 @@ export default class SearchHandler {
       verified: verifiedCount,
       totalEntities,
       concepts: conceptCount,
+      appIdentities,
       trustDistribution,
       crawling: this.ingestion?.domainDiscovery?.isRunning || false
     };

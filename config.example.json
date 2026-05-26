@@ -16,5 +16,7 @@
   "ingestion": {
     "autostart": false,
     "pollInterval": 300000
-  }
+  },
+  "appBaseUrl": "https://epistery.app",
+  "appPollInterval": 3600000
 }

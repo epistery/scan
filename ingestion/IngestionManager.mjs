@@ -5,6 +5,7 @@ import IdentityContractInterpreter from './interpreters/IdentityContractInterpre
 import CampaignWalletInterpreter from './interpreters/CampaignWalletInterpreter.mjs';
 import AIDiscoveryInterpreter from './interpreters/AIDiscoveryInterpreter.mjs';
 import DataSourceInterpreter from './interpreters/DataSourceInterpreter.mjs';
+import AppDirectory from './AppDirectory.mjs';
 
 /**
  * IngestionManager
@@ -21,6 +22,7 @@ export default class IngestionManager {
     this.pollInterval = config.pollInterval || 60000; // Default 1 minute
     this.isRunning = false;
     this.domainDiscovery = null;
+    this.appDirectory = null;
   }
 
   /**
@@ -47,6 +49,13 @@ export default class IngestionManager {
     // Register data source interpreter
     const dataSource = new DataSourceInterpreter(this.database, this.domainDiscovery);
     this.registry.register('DataSource', dataSource, { source: 'config' });
+
+    // epistery-app directory — indexes named contracts + public sessions from
+    // scan's `identities` collection (and, if configured, the app's HTTP API).
+    this.appDirectory = new AppDirectory(this.database, {
+      appBaseUrl: this.config.appBaseUrl,
+      pollInterval: this.config.appPollInterval || 3600000
+    });
 
     console.log(`[ingestion] Registered types: ${this.registry.list().join(', ')}`);
 
@@ -186,6 +195,9 @@ export default class IngestionManager {
 
     // Start domain discovery on its own timer
     this.domainDiscovery.start();
+
+    // Start the epistery-app directory sync on its own timer
+    this.appDirectory?.start();
   }
 
   /**
@@ -202,6 +214,7 @@ export default class IngestionManager {
     if (this.domainDiscovery) {
       this.domainDiscovery.stop();
     }
+    this.appDirectory?.stop();
     console.log('[ingestion] Stopped polling');
   }
 

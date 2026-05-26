@@ -28,8 +28,10 @@ export default class Database {
     await this.entities.createIndex({ chain: 1 });
     await this.entities.createIndex({ 'metadata.domain': 1 });
 
-    // Full-text index for knowledge search across manifest content
-    await this.entities.createIndex({
+    // Full-text index for knowledge search across manifest content + epistery-app
+    // identities. Mongo allows only ONE text index per collection, so when the
+    // field set changes we must drop and recreate it (see ensureTextIndex).
+    const textSpec = {
       'metadata.manifest.organization.name': 'text',
       'metadata.manifest.organization.mission': 'text',
       'metadata.manifest.organization.description': 'text',
@@ -40,23 +42,36 @@ export default class Database {
       'metadata.manifest.applications.description': 'text',
       'metadata.manifest.people.name': 'text',
       'metadata.manifest.people.role': 'text',
+      // epistery-app identities (see ingestion/AppDirectory.mjs)
+      'metadata.app.name': 'text',
+      'metadata.app.domain': 'text',
+      'metadata.app.description': 'text',
+      'metadata.app.sessions.name': 'text',
+      'metadata.app.sessions.description': 'text',
       address: 'text'
-    }, {
+    };
+    const textOpts = {
       name: 'knowledge_search',
       weights: {
         'metadata.manifest.organization.name': 10,
+        'metadata.app.name': 10,
         'metadata.manifest.coreConcepts.term': 8,
         'metadata.manifest.applications.name': 6,
+        'metadata.app.sessions.name': 6,
         'metadata.manifest.organization.mission': 5,
         'metadata.manifest.coreConcepts.definition': 4,
+        'metadata.app.description': 4,
+        'metadata.app.sessions.description': 3,
         'metadata.manifest.applications.description': 3,
         'metadata.manifest.organization.description': 3,
+        'metadata.app.domain': 3,
         'metadata.manifest.people.name': 2,
         'metadata.manifest.people.role': 1,
         'metadata.manifest.organization.tagline': 2,
         address: 1
       }
-    });
+    };
+    await this.ensureTextIndex(textSpec, textOpts);
 
     // Event indexes for efficient querying
     await this.events.createIndex({ timestamp: -1 });
@@ -83,12 +98,59 @@ export default class Database {
     // Capability index for query routing
     await this.entities.createIndex({ 'metadata.capabilities.keywords': 1 });
 
+    // epistery-app identity lookups (exact name + owner)
+    await this.entities.createIndex({ 'metadata.app.nameLower': 1 });
+    await this.entities.createIndex({ 'metadata.app.owner': 1 });
+
     // Domain indexes (AI discovery crawl state)
     await this.domains.createIndex({ domain: 1 }, { unique: true });
     await this.domains.createIndex({ active: 1 });
     await this.domains.createIndex({ lastChecked: 1 });
 
     console.log('[db] Database indexes created');
+  }
+
+  /**
+   * Ensure the single text index matches `spec`. Mongo permits only one text
+   * index per collection and rejects a createIndex whose key spec differs from
+   * the existing one (code 85/86). When that happens we drop the old index and
+   * recreate it with the new field set.
+   */
+  async ensureTextIndex(spec, opts) {
+    try {
+      await this.entities.createIndex(spec, opts);
+    } catch (e) {
+      const conflict = e.code === 85 || e.code === 86 || /text index|already exists/i.test(e.message || '');
+      if (!conflict) throw e;
+      await this.entities.dropIndex(opts.name).catch(() => {});
+      await this.entities.createIndex(spec, opts);
+    }
+  }
+
+  /**
+   * Merge an epistery-app identity into the entities collection.
+   *
+   * Keyed on address (case-insensitive). App data lives under `metadata.app`
+   * and never clobbers an existing entity's type or other metadata — so a
+   * contract already indexed on-chain as an IdentityContract simply gains an
+   * `app` block. `type: 'AppIdentity'` is stamped only when inserting a fresh
+   * row. See ingestion/AppDirectory.mjs.
+   */
+  async saveAppIdentity({ address, chain, app }) {
+    const now = new Date();
+    const addressRegex = new RegExp(`^${address}$`, 'i');
+
+    const setOnInsert = { address: address.toLowerCase(), type: 'AppIdentity', _created: now };
+    if (chain) setOnInsert.chain = chain;
+
+    await this.entities.updateOne(
+      { address: addressRegex },
+      {
+        $set: { 'metadata.app': app, _modified: now },
+        $setOnInsert: setOnInsert
+      },
+      { upsert: true }
+    );
   }
 
   /**
