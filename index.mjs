@@ -92,11 +92,10 @@ export default class EpisteryScan {
     const ingestionConfig = {
       chains: {},
       pollInterval: episteryConfig.data.pollInterval || 300000,
-      // epistery-app directory: where to reach the app for its signed identity
-      // manifests + public sessions ([app] url in config.ini). Defaults to the
-      // production app; set '' to index names/addresses from the identities
-      // collection only (no manifest enrichment).
-      appBaseUrl: this.config.appBaseUrl ?? episteryConfig.data.app?.url ?? 'https://epistery.app',
+      // epistery-app directory: where to reach the app for public-session
+      // enrichment ([app] url in config.ini). Unset → index names/addresses
+      // from the identities collection only.
+      appBaseUrl: this.config.appBaseUrl || episteryConfig.data.app?.url || '',
       appPollInterval: episteryConfig.data.app?.pollInterval || 3600000
     };
 

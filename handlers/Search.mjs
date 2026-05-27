@@ -595,21 +595,15 @@ export default class SearchHandler {
       if (sig.digitalNameMatch) trustScore += 20;            // contractExists
     }
 
-    // Surface the on-chain address for contract/wallet-backed entities (app
-    // identities, agents). For AIDiscovery the address IS the domain, so leave
-    // it null there to avoid implying a 0x address.
-    const isAddress = /^0x[a-f0-9]{40}$/i.test(entity.address || '');
-
     const result = {
       // Identity
-      address: isAddress ? entity.address : null,
       domain: isDiscovery ? entity.address : (entity.metadata?.domain || app?.domain || null),
       name: org.name || app?.name || entity.address,
       type: entity.type,
       chain: entity.chain,
 
       // Authored content
-      mission: org.mission || org.description || null,
+      mission: org.mission || org.description || app?.description || null,
       tagline: org.tagline || null,
       sector: org.sector || null,
 
@@ -645,29 +639,32 @@ export default class SearchHandler {
       lastChecked: entity._modified || entity._created
     };
 
-    // epistery-app identity — named contract, its public sessions (with deep
-    // links + per-session MCP endpoints), and an activity rollup. Trust,
-    // applications, and the signature already flow through the manifest path
-    // above; this block adds the identity-specific view bots act on.
+    // epistery-app identity — named contract + its public sessions
     if (app) {
       result.app = {
         name: app.name || null,
         domain: app.domain || null,
         owner: app.owner || null,
         profileUrl: app.profileUrl || null,
-        activity: app.activity || null,
+        description: app.description || null,
         sessions: (app.sessions || []).map(s => ({
           kind: s.kind,
           name: s.name || null,
           description: s.description || null,
           memberCount: s.memberCount ?? null,
-          lastActivity: s.lastActivity ?? null,
-          url: s.url || null,
-          mcp: s.mcp || null
+          lastActivity: s.lastActivity ?? null
         }))
       };
       result.source = 'epistery-app';
       result.discoveryMethod = result.discoveryMethod || 'app-directory';
+      // Give generic result UIs something to render: surface public sessions
+      // as "applications" when there's no manifest providing them.
+      if (result.applications.length === 0 && app.sessions?.length) {
+        result.applications = app.sessions.map(s => ({
+          name: s.name || s.kind,
+          description: s.description || null
+        }));
+      }
     }
 
     return result;

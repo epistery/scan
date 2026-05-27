@@ -130,35 +130,25 @@ export default class Database {
   /**
    * Merge an epistery-app identity into the entities collection.
    *
-   * Keyed on address (case-insensitive). The standard manifest + trust signals
-   * land on the same `metadata.{manifest,signals,trustScore,verification}`
-   * fields scan uses for signed-web domains, so the existing text index and
-   * result formatter cover app identities for free. Rich session/activity
-   * extras live under `metadata.app`.
-   *
-   * Merge (not replace): a contract already indexed on-chain as an
-   * IdentityContract keeps its type and gains this data. `type: 'AppIdentity'`
-   * is stamped only when inserting a fresh row. See ingestion/AppDirectory.mjs.
+   * Keyed on address (case-insensitive). App data lives under `metadata.app`
+   * and never clobbers an existing entity's type or other metadata — so a
+   * contract already indexed on-chain as an IdentityContract simply gains an
+   * `app` block. `type: 'AppIdentity'` is stamped only when inserting a fresh
+   * row. See ingestion/AppDirectory.mjs.
    */
-  async saveAppIdentity({ address, chain, domain, manifest, signals, trustScore, verification, identityLinks, app }) {
+  async saveAppIdentity({ address, chain, app }) {
     const now = new Date();
     const addressRegex = new RegExp(`^${address}$`, 'i');
-
-    const set = { _modified: now, 'metadata.app': app };
-    if (domain) set['metadata.domain'] = domain;
-    if (manifest) set['metadata.manifest'] = manifest;
-    if (signals) set['metadata.signals'] = signals;
-    if (typeof trustScore === 'number') set['metadata.trustScore'] = trustScore;
-    if (verification) set['metadata.verification'] = verification;
-    if (identityLinks) set['metadata.identityLinks'] = identityLinks;
-    set['metadata.discoveryMethod'] = 'app-directory';
 
     const setOnInsert = { address: address.toLowerCase(), type: 'AppIdentity', _created: now };
     if (chain) setOnInsert.chain = chain;
 
     await this.entities.updateOne(
       { address: addressRegex },
-      { $set: set, $setOnInsert: setOnInsert },
+      {
+        $set: { 'metadata.app': app, _modified: now },
+        $setOnInsert: setOnInsert
+      },
       { upsert: true }
     );
   }
