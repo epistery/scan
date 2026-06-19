@@ -587,6 +587,7 @@
       if (r.type === 'Skill') return renderSkillResult(r);
       if (r.type === 'MCPService') return renderMcpResult(r);
       if (r.type === 'Wallet' || r.type === 'Contract') return renderWalletResult(r);
+      if (r.type === 'Object') return renderObjectResult(r);
 
       const trustBadge = ExpandResult.getTrustBadge(r);
       const signalDots = ExpandResult.renderSignalDots(r.signals);
@@ -647,6 +648,48 @@
           ${meta}
           ${claim}
           ${expandLink}
+        </div>
+      `;
+    }
+
+    function renderObjectResult(r) {
+      // Normalized signed object (vehicle, official, property, …). Rendered
+      // true to its type, with the source never dropped. All fields guarded —
+      // objects carry none of the manifest fields the default renderer expects.
+      const trustBadge = ExpandResult.getTrustBadge(r);
+      const typeBadge = `<span class="badge badge-open">${escapeHtml(r.objectType || 'object')}</span>`;
+      const sourceBadge = '<span class="badge-source badge-source-sw">Signed Web</span>';
+
+      const sourceName = r.sourceLabel || r.domain || r.source || '';
+      const domain = r.domain
+        ? `<a class="result-domain" href="https://${escapeAttr(r.domain)}" target="_blank" rel="noopener">${escapeHtml(sourceName)}</a>`
+        : (sourceName ? `<span class="result-domain">${escapeHtml(sourceName)}</span>` : '');
+
+      const summary = r.summary
+        ? `<div class="result-mission">${escapeHtml(r.summary)}</div>`
+        : '';
+
+      const metaParts = [];
+      if (r.author) metaParts.push(`signed by ${escapeHtml(String(r.author).slice(0, 10))}…`);
+      if (r.lastChecked) metaParts.push(`indexed ${new Date(r.lastChecked).toLocaleDateString()}`);
+      const meta = metaParts.length > 0
+        ? `<div class="result-meta">${metaParts.join(' &middot; ')}</div>`
+        : '';
+
+      const link = r.url
+        ? `<div class="result-actions"><a href="${escapeAttr(r.url)}" target="_blank" rel="noopener">View on source</a></div>`
+        : '';
+
+      return `
+        <div class="result result-object">
+          <div class="result-header">
+            <span class="result-name">${escapeHtml(r.name)}</span>
+            ${domain}
+            <span class="result-trust">${trustBadge}${typeBadge}${sourceBadge}</span>
+          </div>
+          ${summary}
+          ${meta}
+          ${link}
         </div>
       `;
     }
