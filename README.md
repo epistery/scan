@@ -309,21 +309,38 @@ autostart=false
 
 **Important — the harness key is the service's canonical hostname, not a routing alias.** `handlers/McpProxy.mjs` hardcodes `MCP_HOST = 'mcp.epistery.com'` and matches child responses by that exact hostname. Using `mcp.localhost` or similar will spawn the child and pass health checks, but the UI will report *"MCP Registry unavailable — running in dev mode without harness"*. The hostname is an identity key (see shadow-DNS config below), not just a route.
 
-**Data sources**: Register external data source skills under `[datasources.*]` sections:
+**Data sources**: Register external data source skills under `[datasources.*]` sections. This is the canonical block for the live `epistery.com` host — the five rootz.global data-gathering sites that feed search:
 
 ```ini
-[datasources.vehicles]
-url=https://cars.rootz.global
-label=Vehicle Registry
-topics=car,vehicle,vin,automobile,truck,make,model
-
 [datasources.provenance]
 url=https://origin.rootz.global
-label=Provenance Registry
-topics=origin,provenance,qr,physical,authenticity,product
+label=Origin — SEC AI Registry
+topics=origin,provenance,sec,filing,company,investor,authenticity,registry
+
+[datasources.vehicles]
+url=https://cars.rootz.global
+label=Cars Rootz
+topics=car,vehicle,vin,automobile,truck,make,model,used
+
+[datasources.politics]
+url=https://politics.rootz.global
+label=Politics Rootz
+topics=politics,politician,election,candidate,congress,senate,government,federal,state,local
+
+[datasources.shipping]
+url=https://ship.rootz.global
+label=Rootz Shipping Intelligence
+topics=ship,shipping,oil,tanker,vessel,sanctions,fleet,cargo,maritime,trade
+
+[datasources.rentals]
+url=https://rental.rootz.global
+label=Rental Rootz Global
+topics=rental,vacation,property,caribbean,booking,availability,lease,accommodation
 ```
 
-Each entry has a name (the INI key), a base URL, a human label, and comma-separated topic keywords for query routing. On startup, scan fetches each source's skill manifest at `/.well-known/ai/skill.json` to get full tool definitions.
+Each entry has a name (the INI key), a base URL, a human label, and comma-separated topic keywords for query routing. On startup, `syncDataSourceSkills()` tries each source's dedicated manifest at `/.well-known/ai/skill.json`, then falls back to the standard `/.well-known/ai` manifest (normalized via `_normalizeManifest`) — in practice the rootz.global sites only serve the latter. The fetched tool definitions appear in scan's own `/.well-known/ai` `skills` array and are callable via `/api/skill/{name}/call`.
+
+> This config is **not** in the repo's runtime path — it lives only in `~/.epistery/config.ini` on whichever host runs scan. Without it, `DomainDiscovery.dataSources` is empty and none of these sites are indexed or searchable. Keep this block in sync if you rebuild the host or deploy from a different machine.
 
 **Ingestion**: `autostart=false` (default) means no automatic RPC polling. Set `true` on the production host. When disabled, manual ingestion still works via `/api/monitor` and `/api/fetch`.
 

@@ -1142,6 +1142,7 @@ export default class SearchHandler {
 
     const results = [];
     for (const match of top) {
+     try {
       const ds = match.ds;
       const manifest = ds.skillManifest || {};
 
@@ -1167,8 +1168,8 @@ export default class SearchHandler {
       const tools = (manifest.tools || []).map(t => {
         if (t.method && t.path) return { name: t.name, description: t.description, method: t.method, path: t.path, inputSchema: t.inputSchema };
         // Try to correlate tool name to an api_endpoint (e.g. cars_search → /api/search)
-        const suffix = t.name.replace(/^[^_]*_/, ''); // cars_search → search
-        const matched = endpoints.find(ep => ep.path.endsWith('/' + suffix));
+        const suffix = (t.name || '').replace(/^[^_]*_/, ''); // cars_search → search
+        const matched = suffix && endpoints.find(ep => ep.path?.endsWith('/' + suffix));
         if (matched) return { name: t.name, description: t.description, method: matched.method, path: matched.path, inputSchema: t.inputSchema };
         return { name: t.name, description: t.description };
       });
@@ -1223,6 +1224,10 @@ export default class SearchHandler {
       }
 
       results.push(result);
+     } catch (err) {
+      // One malformed manifest must not blank the whole skill result set
+      console.warn(`[search] Skill build failed for ${match.ds?.name}:`, err.message);
+     }
     }
 
     return results;
