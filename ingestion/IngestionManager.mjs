@@ -6,6 +6,7 @@ import CampaignWalletInterpreter from './interpreters/CampaignWalletInterpreter.
 import AIDiscoveryInterpreter from './interpreters/AIDiscoveryInterpreter.mjs';
 import DataSourceInterpreter from './interpreters/DataSourceInterpreter.mjs';
 import AppDirectory from './AppDirectory.mjs';
+import ObjectImporter from './ObjectImporter.mjs';
 
 /**
  * IngestionManager
@@ -23,6 +24,7 @@ export default class IngestionManager {
     this.isRunning = false;
     this.domainDiscovery = null;
     this.appDirectory = null;
+    this.objectImporter = null;
   }
 
   /**
@@ -55,6 +57,12 @@ export default class IngestionManager {
     this.appDirectory = new AppDirectory(this.database, {
       appBaseUrl: this.config.appBaseUrl,
       pollInterval: this.config.appPollInterval || 3600000
+    });
+
+    // Object importer — pulls each data source's catalog and normalizes every
+    // object into the global signed-object index (see ObjectImporter.mjs).
+    this.objectImporter = new ObjectImporter(this.database, this.domainDiscovery, {
+      pollInterval: this.config.objectImportInterval || 21600000
     });
 
     console.log(`[ingestion] Registered types: ${this.registry.list().join(', ')}`);
@@ -198,6 +206,20 @@ export default class IngestionManager {
 
     // Start the epistery-app directory sync on its own timer
     this.appDirectory?.start();
+
+    // Start periodic object import (initial run kicks off immediately)
+    this.objectImporter?.start();
+  }
+
+  /**
+   * Import normalized objects from data source catalogs into the global index.
+   * Safe to call regardless of whether periodic ingestion is running — used by
+   * the manual /api/ingest trigger. `name` limits to one source; `cap` bounds
+   * objects per source.
+   */
+  async importObjects({ name = null, cap = Infinity } = {}) {
+    if (!this.objectImporter) throw new Error('Object importer not initialized');
+    return this.objectImporter.importAll({ name, cap });
   }
 
   /**
@@ -215,6 +237,7 @@ export default class IngestionManager {
       this.domainDiscovery.stop();
     }
     this.appDirectory?.stop();
+    this.objectImporter?.stop();
     console.log('[ingestion] Stopped polling');
   }
 

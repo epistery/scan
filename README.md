@@ -90,6 +90,28 @@ Registered types:
 
 **Data source skills**: `DomainDiscovery` also manages registered data sources from `[datasources.*]` config sections. On startup, `_loadDataSourcesConfig()` reads each entry's URL, label, and topic keywords. `syncDataSourceSkills()` fetches each source's skill manifest at `/.well-known/ai/skill.json`, caching the full tool definitions. Data source domains are seeded alongside regular domains for trust scoring.
 
+**Signed-object index**: scan is a search engine for *signed objects* — its job is to normalize and index what data sources publish, never lose the source, and present every result true to its object type and the author's intent. `ObjectImporter` drives a per-source *import engine* (`ingestion/sources/<name>.mjs`) that pages the source's catalog and maps each raw object into one normalized, globally-indexable entity:
+
+```
+address: "<source>:<objectId>"      // e.g. "vehicles:1HG…" — the source stays in the key
+type:    "Object"
+metadata.source: { name, label, domain, url, author, trustScore, importedAt }   // provenance, never dropped
+metadata.object: { type, title, summary, keywords[] }                            // normalized → text-indexed
+metadata.fields: { …raw author object… }                                         // author's intent, verbatim
+```
+
+The normalized `object.title/summary/keywords` fields join the `knowledge_search` text index (see `db/Database.mjs`), so one query (`honda`) returns Honda vehicles *and* Rep. Mike Honda across sources at once. Each import engine exports `{ objectType, objectsKey, pageSize, listUrl, total, id, map }`; `engineFor(name)` in `ingestion/sources/index.mjs` binds it to the `[datasources.<name>]` config key. Sources without an engine (e.g. `provenance`/origin is an entity-lookup registry, `shipping` exposes no catalog) are not bulk-indexed.
+
+Import runs periodically while ingestion is active, and can be triggered manually:
+
+```
+POST /api/ingest            # import every source with an engine (full catalog)
+POST /api/ingest/vehicles   # one source
+POST /api/ingest/vehicles?cap=2000   # bound objects per source (controlled first run)
+```
+
+Imports run in the background (a full cars index is ~200k objects). **To add a new source**: drop a `<name>.mjs` engine in `ingestion/sources/`, register it in that folder's `index.mjs` under its config key, and add the matching `[datasources.<name>]` section.
+
 ### Harness (Multisite Host)
 
 `Harness` manages child processes that serve hostname-routed traffic. Configured in `~/.epistery/config.ini`:

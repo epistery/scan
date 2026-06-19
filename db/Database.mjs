@@ -48,6 +48,10 @@ export default class Database {
       'metadata.app.description': 'text',
       'metadata.app.sessions.name': 'text',
       'metadata.app.sessions.description': 'text',
+      // normalized signed objects ingested from data sources (see ingestion/ObjectImporter.mjs)
+      'metadata.object.title': 'text',
+      'metadata.object.keywords': 'text',
+      'metadata.object.summary': 'text',
       address: 'text'
     };
     const textOpts = {
@@ -68,6 +72,9 @@ export default class Database {
         'metadata.manifest.people.name': 2,
         'metadata.manifest.people.role': 1,
         'metadata.manifest.organization.tagline': 2,
+        'metadata.object.title': 9,
+        'metadata.object.keywords': 7,
+        'metadata.object.summary': 4,
         address: 1
       }
     };
@@ -97,6 +104,10 @@ export default class Database {
 
     // Capability index for query routing
     await this.entities.createIndex({ 'metadata.capabilities.keywords': 1 });
+
+    // Normalized signed-object lookups (filter/group by source and object type)
+    await this.entities.createIndex({ 'metadata.source.name': 1 });
+    await this.entities.createIndex({ 'metadata.object.type': 1 });
 
     // epistery-app identity lookups (exact name + owner)
     await this.entities.createIndex({ 'metadata.app.nameLower': 1 });
@@ -181,6 +192,34 @@ export default class Database {
     );
 
     return doc;
+  }
+
+  /**
+   * Bulk upsert normalized signed objects (see ingestion/ObjectImporter.mjs).
+   *
+   * Keyed on the lowercased, source-prefixed address ("vehicles:<vin>"), so a
+   * re-import refreshes an object in place without duplicating it. metadata is
+   * replaced wholesale each pass — objects carry no externally-set fields, so
+   * there is nothing to preserve across imports.
+   */
+  async bulkUpsertObjects(docs) {
+    if (!docs || docs.length === 0) return { upserted: 0, modified: 0 };
+    const now = new Date();
+    const ops = docs.map(d => {
+      const address = d.address.toLowerCase();
+      return {
+        updateOne: {
+          filter: { address },
+          update: {
+            $set: { type: d.type, chain: d.chain, metadata: d.metadata, _modified: now },
+            $setOnInsert: { address, _created: now }
+          },
+          upsert: true
+        }
+      };
+    });
+    const res = await this.entities.bulkWrite(ops, { ordered: false });
+    return { upserted: res.upsertedCount || 0, modified: res.modifiedCount || 0 };
   }
 
   /**

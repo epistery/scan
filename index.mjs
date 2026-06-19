@@ -178,6 +178,32 @@ export default class EpisteryScan {
       }
     });
 
+    // Manual object-import trigger — pull a data source's catalog into the
+    // global signed-object index. POST /api/ingest[/:source]?cap=N
+    // (cap bounds objects per source; omit for a full index). Runs in the
+    // background and returns immediately, since a full import is long-running.
+    router.post('/api/ingest/:source?', async (req, res) => {
+      try {
+        const name = req.params.source || null;
+        const cap = req.query.cap ? parseInt(req.query.cap, 10) : Infinity;
+        if (!this.ingestion?.objectImporter) {
+          return res.status(503).json({ error: 'Object importer not available' });
+        }
+        // Fire and forget — full imports take minutes.
+        this.ingestion.importObjects({ name, cap })
+          .then(r => console.log('[scan] Manual import complete:', JSON.stringify(r.results || r)))
+          .catch(e => console.error('[scan] Manual import failed:', e.message));
+        res.json({
+          status: 'started',
+          source: name || 'all',
+          cap: cap === Infinity ? null : cap,
+          message: 'Import running in background — watch logs or /api/search for results.'
+        });
+      } catch (error) {
+        res.status(500).json({ error: error.message });
+      }
+    });
+
     // Health check
     router.get('/health', (req, res) => {
       res.json({

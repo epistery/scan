@@ -579,6 +579,30 @@ export default class SearchHandler {
    * Format an entity into a search result
    */
   formatResult(entity) {
+    // Normalized signed object (ingested from a data source catalog). Presented
+    // true to its object type and author, with the source never dropped.
+    if (entity.type === 'Object') {
+      const src = entity.metadata?.source || {};
+      const obj = entity.metadata?.object || {};
+      const trustScore = src.trustScore || 0;
+      return {
+        type: 'Object',
+        objectType: obj.type || null,
+        name: obj.title || entity.address,
+        summary: obj.summary || null,
+        fields: entity.metadata?.fields || null,
+        domain: src.domain || null,
+        url: src.url || null,
+        source: src.name || src.domain || 'signed-web',
+        sourceLabel: src.label || null,
+        author: src.author || null,
+        trustScore,
+        trustLabel: trustLabel(trustScore),
+        discoveryMethod: 'import',
+        lastChecked: entity._modified || entity._created
+      };
+    }
+
     const manifest = entity.metadata?.manifest;
     const org = manifest?.organization || {};
     const sig = entity.metadata?.verification || entity.metadata?.signature || {};
