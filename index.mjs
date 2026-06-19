@@ -362,16 +362,46 @@ if (import.meta.url === (await import('url')).pathToFileURL(process.argv[1]).hre
   const httpsPort = process.env.PORTSSL || 443;
 
   const app = express();
+
+  // Host gate (like nginx server_name) — FIRST, before any other middleware.
+  // scan serves a fixed set of hosts: the named child services under [harness]
+  // plus the [scan] match list in ~/.epistery/config.ini. Anything else is
+  // hostile traffic — scanners spray junk Host/X-Forwarded-Host headers
+  // (SSRF/XSS/command-injection probes, open-proxy abuse), and the downstream
+  // epistery domain middleware would otherwise mint a wallet + ~/.epistery/<host>/
+  // dir for each one. epistery-host mints per-domain by design; scan must not.
+  // Unrecognized hosts are dropped immediately (connection closed, nginx 444-style).
+  const rootConfig = new Config();
+  rootConfig.setPath('/');
+  const harnessMap = rootConfig.data.harness || {};
+  const scanCfg = rootConfig.data.scan || {};
+  const rawMatch = scanCfg.domains ?? scanCfg.server_name ?? [];
+  const matchList = Array.isArray(rawMatch) ? rawMatch : String(rawMatch).split(',');
+  const SERVED_HOSTS = new Set(
+    [...Object.keys(harnessMap), ...matchList]
+      .map(h => String(h).trim().toLowerCase()).filter(Boolean)
+  );
+  if (SERVED_HOSTS.size === 0) {
+    throw new Error('[epistery-scan] No hosts to serve: declare domains under [scan] (and/or child services under [harness]) in ~/.epistery/config.ini. Refusing to start.');
+  }
+  console.log(`[epistery-scan] Host gate serving: ${[...SERVED_HOSTS].join(', ')}`);
+  app.use((req, res, next) => {
+    const host = (req.headers.host || '').split(':')[0].toLowerCase();
+    if (!SERVED_HOSTS.has(host)) {
+      req.socket.destroy();
+      return;
+    }
+    next();
+  });
+
   app.use(morgan('dev'));
   app.use(cors());
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));
   app.use(cookieParser());
 
-  // Harness — spawn child processes for hostname-routed services
-  const harnessConfig = new Config();
-  harnessConfig.setPath('/');
-  const harnessMap = harnessConfig.data.harness || {};
+  // Harness — spawn child processes for hostname-routed services.
+  // harnessMap was loaded above for the host gate; reuse it.
   const harness = new Harness(harnessMap);
   if (Object.keys(harnessMap).length) {
     await harness.start();
@@ -505,7 +535,7 @@ if (import.meta.url === (await import('url')).pathToFileURL(process.argv[1]).hre
   // Bring up listeners. Two modes:
   //   - contactEmail present (config.ini [profile] email): HTTPS via Certify + HTTP.
   //   - No email: plain HTTP for dev clones.
-  const contactEmail = harnessConfig.data.profile?.email;
+  const contactEmail = rootConfig.data.profile?.email;
   const servers = [];
 
   if (contactEmail) {
