@@ -1,6 +1,7 @@
 import express from 'express';
 import { ethers } from 'ethers';
 import { summarizeSignals, trustLabel } from '../lib/Posture.mjs';
+import { toPresentAi } from '../lib/Present.mjs';
 
 const ERC20_ABI = ['function balanceOf(address) view returns (uint256)'];
 const EPISTERY_ABI = [
@@ -294,7 +295,7 @@ export default class SearchHandler {
       }).limit(20).toArray();
 
       if (entities.length > 0) {
-        results.results = entities.map(e => this.formatResult(e));
+        results.results = await this._formatEntities(entities);
         results.meta.total = entities.length;
       }
 
@@ -329,7 +330,7 @@ export default class SearchHandler {
       });
 
       if (entity) {
-        results.results.push(this.formatResult(entity));
+        results.results.push(...(await this._formatEntities([entity])));
         results.meta.total = 1;
       } else if (this.ingestion?.domainDiscovery) {
         // Not indexed yet — trigger discovery in background
@@ -352,7 +353,7 @@ export default class SearchHandler {
         .toArray();
 
       if (textResults.length > 0) {
-        results.results = textResults.map(e => this.formatResult(e));
+        results.results = await this._formatEntities(textResults);
         results.meta.total = textResults.length;
       }
     } catch (err) {
@@ -407,7 +408,7 @@ export default class SearchHandler {
         .limit(limit)
         .toArray();
 
-      results.results = entities.map(e => this.formatResult(e));
+      results.results = await this._formatEntities(entities);
       results.meta.total = entities.length;
     }
 
@@ -576,6 +577,70 @@ export default class SearchHandler {
   }
 
   /**
+   * Derive an entity's origin key — the signing identity its facts hang off.
+   * Precedence MUST mirror originFacts() in lib/Present.mjs so the claims count
+   * attaches to the same origin the present.ai packet reports.
+   */
+  _originKey(entity) {
+    const m = entity.metadata || {};
+    return m.source?.author
+      || m.verification?.digitalName
+      || m.signature?.digitalName
+      || m.manifest?._signature?.digitalName
+      || m.app?.owner
+      || null;
+  }
+
+  /**
+   * History depth, batched. Counts how many indexed objects share each origin in
+   * the result set — in ONE aggregation, not one query per result — and stamps
+   * `_originClaims` so present.ai can report it as a derived fact. On failure we
+   * leave it unset; present.ai then omits `claims` rather than emit a faked zero.
+   */
+  async _stampOriginClaims(entities) {
+    const origins = [...new Set((entities || []).map(e => this._originKey(e)).filter(Boolean))];
+    if (origins.length === 0) return;
+
+    // Group by the same origin precedence used in _originKey / originFacts.
+    const originExpr = { $ifNull: ['$metadata.source.author',
+      { $ifNull: ['$metadata.verification.digitalName',
+        { $ifNull: ['$metadata.signature.digitalName',
+          { $ifNull: ['$metadata.manifest._signature.digitalName', '$metadata.app.owner'] }] }] }] };
+
+    const counts = {};
+    try {
+      const rows = await this.db.collection('entities').aggregate([
+        { $match: { $or: [
+          { 'metadata.source.author': { $in: origins } },
+          { 'metadata.verification.digitalName': { $in: origins } },
+          { 'metadata.signature.digitalName': { $in: origins } },
+          { 'metadata.manifest._signature.digitalName': { $in: origins } },
+          { 'metadata.app.owner': { $in: origins } }
+        ] } },
+        { $group: { _id: originExpr, count: { $sum: 1 } } }
+      ]).toArray();
+      for (const r of rows) if (r._id != null) counts[r._id] = r.count;
+    } catch (err) {
+      console.warn('[search] origin claims enrichment failed:', err.message);
+      return;
+    }
+
+    for (const e of entities) {
+      const key = this._originKey(e);
+      if (key && counts[key] != null) e._originClaims = counts[key];
+    }
+  }
+
+  /**
+   * Enrich a batch of entities (origin claims) then project each to a result.
+   */
+  async _formatEntities(entities) {
+    if (!entities?.length) return [];
+    await this._stampOriginClaims(entities);
+    return entities.map(e => this.formatResult(e));
+  }
+
+  /**
    * Format an entity into a search result
    */
   formatResult(entity) {
@@ -599,7 +664,9 @@ export default class SearchHandler {
         trustScore,
         trustLabel: trustLabel(trustScore),
         discoveryMethod: 'import',
-        lastChecked: entity._modified || entity._created
+        lastChecked: entity._modified || entity._created,
+        // Fixed agent-facing contract (loose data, rigid envelope). See lib/Present.mjs.
+        present: toPresentAi(entity)
       };
     }
 
@@ -691,6 +758,8 @@ export default class SearchHandler {
       }
     }
 
+    // Fixed agent-facing contract (loose data, rigid envelope). See lib/Present.mjs.
+    result.present = toPresentAi(entity);
     return result;
   }
 
@@ -702,6 +771,7 @@ export default class SearchHandler {
       address: new RegExp(`^${id}$`, 'i')
     });
     if (!entity) return null;
+    await this._stampOriginClaims([entity]);
     return this.formatResult(entity);
   }
 
@@ -779,6 +849,7 @@ export default class SearchHandler {
     });
 
     if (existing) {
+      await this._stampOriginClaims([existing]);
       return {
         status: 'already_indexed',
         domain,

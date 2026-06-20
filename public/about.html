@@ -16,6 +16,10 @@
   </script>
   <link rel="stylesheet" href="/static/style/common.css">
   <style>
+    /* This page carries a wide code contract and a comparison table's worth of
+       prose — give it more room than the shared 640px content measure. */
+    .content { max-width: 920px; }
+
     .sample-query {
       display: block;
       background: #fff;
@@ -34,18 +38,44 @@
       border-left-color: #2980b9;
       text-decoration: none;
     }
-    .sample-query .label {
-      font-weight: 600;
-    }
-    .sample-query .hint {
-      color: #888;
+    .sample-query .label { font-weight: 600; }
+    .sample-query .hint { color: #888; font-size: 0.82rem; }
+    .sample-query.mcp { border-left-color: #7c3aed; }
+    .sample-query.mcp:hover { border-left-color: #6d28d9; }
+
+    /* The agent-facing contract, declared on the page that serves it. */
+    pre.contract {
+      background: #1e2630;
+      color: #e6edf3;
+      border-radius: 6px;
+      padding: 1rem 1.2rem;
+      overflow-x: auto;
       font-size: 0.82rem;
+      line-height: 1.5;
+      min-width: 0;
     }
-    .sample-query.mcp {
-      border-left-color: #7c3aed;
+    .ladder {
+      list-style: none;
+      padding: 0;
+      margin: 0.5rem 0 1rem;
     }
-    .sample-query.mcp:hover {
-      border-left-color: #6d28d9;
+    .ladder li {
+      padding: 0.35rem 0.7rem;
+      border-left: 3px solid #cbd5e0;
+      margin-bottom: 0.3rem;
+      font-size: 0.9rem;
+    }
+    .ladder li code { font-weight: 600; }
+    .ladder li.rung-chain { border-left-color: #2f855a; }
+    .ladder li.rung-dns { border-left-color: #3498db; }
+    .ladder li.rung-claimed { border-left-color: #b7791f; }
+    .ladder li.rung-open { border-left-color: #cbd5e0; }
+    .note {
+      font-size: 0.85rem;
+      color: #888;
+      border-top: 1px solid #eee;
+      padding-top: 0.8rem;
+      margin-top: 1.5rem;
     }
   </style>
 </head>
@@ -55,44 +85,119 @@
     <div class="content">
       <h1>About Epistery Scan</h1>
       <p>
-        Epistery Scan indexes the signed web &mdash; websites that publish authored,
-        cryptographically signed data via the
-        <a href="https://rootz.global/ai-discovery">AI Discovery Standard</a>.
+        Epistery Scan is a <strong>registry of things with known origin</strong>. It indexes
+        data and services that have been signed by their author &mdash; a car listing, an
+        identity contract, an advertising campaign, a shipment of produce, a page of recipes
+        &mdash; so that an AI agent (or a person) can find them, verify who published them,
+        and pull the live source on demand.
       </p>
       <p>
-        Unlike traditional search engines that scrape and repackage content, Epistery
-        only indexes what organizations have explicitly published and signed. Blockchain
-        provides the trust substrate: signature verification, identity binding, and
-        provenance.
+        We do not scrape, rank, or interpret. We require only one thing: that what we index
+        was signed by an origin you can trace. The web was never keyed, so it never had
+        continuity &mdash; and without continuity, reputation has nowhere to accrue except
+        inside a handful of platforms that grant it. Scan is the missing substrate: a place
+        where a signing identity can build a verifiable history, and where the market &mdash;
+        not Scan &mdash; decides what that history is worth.
       </p>
 
-      <h2>How to use Search</h2>
+      <h2>The purpose</h2>
       <p>
-        Type a keyword, organization name, or domain into the search bar on the
-        <a href="/">home page</a>. Results come from two sources:
+        AI now has to consume the live web and trust it, and the live web is a poor source:
+        stale, wrapped in SEO sludge, and impossible to attribute to its origin. Ask a model
+        for a used Honda Civic in northern Arizona and it goes to Reddit &mdash; an opinion of
+        unknown age from an account of unknown provenance. Scan exists so that the answer can
+        instead be a <em>signed, current, navigable</em> object straight from the dealer, with
+        a cryptographic trail back to who published it.
+      </p>
+      <p>
+        We are not trying to make a business of the index itself. It is infrastructure &mdash;
+        a tool first, and one day a utility that disappears into the fabric of the web. Many
+        ventures need it; this is the shared spine they stand on.
+      </p>
+
+      <h2>How it works</h2>
+      <p>
+        Think of Scan as an interplanetary Mongo: a registry that <em>knows</em> documents it
+        does not <em>manage</em>. Each data source has an import engine that normalizes its
+        objects into one searchable shape &mdash; preserving the author's type, intent, and
+        provenance &mdash; so a single query reaches vehicles, contracts, identities, and
+        signed pages at once. Every object keeps three tiers, Mongo-style and loosely typed:
       </p>
       <ul>
-        <li><strong>Signed Web</strong> &mdash; domains that publish a <code>/.well-known/ai</code> manifest, indexed and verified by Epistery</li>
-        <li><strong>MCP Registry</strong> &mdash; thousands of Model Context Protocol services, searchable by name, category, or capability</li>
+        <li><strong>Required</strong> &mdash; origin, source, type, and the time we first knew it</li>
+        <li><strong>Known</strong> &mdash; the fields a type implies (a vehicle carries a VIN; a campaign carries rates)</li>
+        <li><strong>Arbitrary</strong> &mdash; whatever else the author chose to sign, carried verbatim</li>
       </ul>
       <p>
-        Results are labeled with trust badges: <strong>Verified</strong> (signature matches
-        on-chain identity), <strong>Signed</strong> (cryptographically signed but not yet
-        chain-verified), or <strong>Open</strong> (published but unsigned).
+        Scan stores a searchable <em>digest</em> and a <strong>locator</strong> &mdash; a handle
+        to the live, signed source. The origin is the truth; the index is a pointer to it. When
+        a result matters, the locator is pulled and the origin's signature is verified at that
+        moment, so what you act on is current and provably from the source. Scan hands over the
+        handle; it does not stand in the middle and re-serve the content. The moment it did, it
+        would break the very signature chain that makes it worth using.
       </p>
 
-      <h2>Delegate to a live service</h2>
+      <h2>Trust without an arbiter</h2>
       <p>
-        Prefix your query with <code>@service-name</code> to route it directly to a live
-        MCP service. Epistery picks the best-matching tool on that service and calls it
-        on your behalf. Browse available services on the <a href="/tools">MCP Tools</a> page.
+        Scan has no trust score. Scoring is interpretation, and an interpreter is an arbiter
+        &mdash; the role we exist to remove. Instead, every result carries the <strong>verifiable
+        facts</strong> from which trust can be built, and you (or your agent, or this site's own
+        surface) build it yourself:
+      </p>
+      <ul class="ladder">
+        <li class="rung-chain"><code>chain-bound</code> &mdash; the signing identity has an on-chain contract bound bidirectionally to its domain</li>
+        <li class="rung-dns"><code>dns</code> &mdash; the domain owner authorized this publication</li>
+        <li class="rung-claimed"><code>claimed</code> &mdash; signed by a self-asserted key, not yet domain- or chain-bound</li>
+        <li class="rung-open"><code>open</code> &mdash; published, unsigned</li>
+      </ul>
+      <p>
+        Alongside the rung we report the signature facts (signed, verified against an on-chain
+        identity, method) and the origin's <em>age</em> &mdash; derived from the first event we
+        observed for it. A key that has been signing for years is a different proposition than
+        one minted yesterday; Scan states that as a fact and lets you weigh it. Any badge you
+        see on this site is computed at the surface from these facts, and you can recompute it.
       </p>
 
-      <h2>Submit your domain</h2>
+      <h2>For AI agents</h2>
       <p>
-        Publish a <code>/.well-known/ai</code> manifest on your domain and enter the
-        domain name in search. Epistery will discover, index, and display it. You can
-        also use the <a href="/discovery">Discovery</a> page to check any domain.
+        Agents are the real audience. Every result is returned in one fixed envelope &mdash;
+        <code>present.ai</code> &mdash; identical in shape for a car, an identity, or a pallet
+        of lettuce, so a client can bind to it once and rely on it every time:
+      </p>
+      <pre class="contract">{
+  "type": "vehicle",
+  "headline": "2019 Honda Civic LX — 41k mi",
+  "summary": "One owner, clean title.",
+  "origin": {
+    "address": "0x9f…",
+    "rung": "chain-bound",
+    "since": "2022-03-01",
+    "signature": { "signed": true, "verified": true, "method": "ecdsa" },
+    "signals": { "contractExists": { "present": true }, "domainBinding": { "present": true } }
+  },
+  "freshness": { "observed": "2026-06-20", "live": ["price", "status"] },
+  "locator": { "fetch": "https://dealer.example/inv/8842", "kind": "signed-json", "yields": "vehicle" },
+  "facets": { "make": "honda", "model": "civic", "year": 2019, "price": 18900 },
+  "actions": [ { "name": "contact_seller", "invoke": "https://dealer.example/contact/8842", "needs": "none" } ]
+}</pre>
+      <p>
+        The <code>facets</code> are loose and source-shaped; the envelope around them is rigid.
+        <code>origin</code> is facts, never a score. <code>freshness.live</code> names the fields
+        whose stored value is only a hint &mdash; pull the locator to trust them. <code>actions</code>
+        are advertised, never brokered: each resolves to the origin's own endpoint, invoked with
+        your epistery identity. The intended habit is simple &mdash; ask your agent to
+        <em>&ldquo;find me a used Honda Civic in northern Arizona, use epistery&rdquo;</em> and let it
+        navigate signed objects instead of scraping opinions.
+      </p>
+
+      <h2>For publishers</h2>
+      <p>
+        Publish a signed <code>/.well-known/ai</code> manifest describing yourself and how you
+        wish your content shared, and Scan will discover, index, and present it &mdash; with you
+        in control of the message and the origin provably yours. The
+        <a href="https://rootz.global/ai-discovery">AI Discovery Standard</a> and its plugins
+        generate that representation for you. Enter your domain in search, or use the
+        <a href="/discovery">Discovery</a> page to check any domain.
       </p>
 
       <h2>Sample queries</h2>
@@ -106,20 +211,21 @@
       </a>
       <a class="sample-query" href="/?q=rootz.global">
         <span class="label">rootz.global</span>
-        <span class="hint">&mdash; look up a specific domain's manifest and trust status</span>
-      </a>
-      <a class="sample-query mcp" href="/?q=@stripe ">
-        <span class="label">@stripe</span>
-        <span class="hint">&mdash; delegate a query to the Stripe MCP service</span>
-      </a>
-      <a class="sample-query mcp" href="/?q=@github ">
-        <span class="label">@github</span>
-        <span class="hint">&mdash; delegate a query to the GitHub MCP service</span>
+        <span class="hint">&mdash; look up a specific domain's manifest and origin facts</span>
       </a>
       <a class="sample-query" href="/?q=AI Discovery">
         <span class="label">AI Discovery</span>
         <span class="hint">&mdash; search indexed concepts across all signed domains</span>
       </a>
+
+      <p class="note">
+        Honest status: the fixed <code>present.ai</code> envelope, the origin rung, signature
+        facts, age, history depth (an origin's count of indexed objects), locator, and advertised
+        actions are live for indexed objects today. Per-type volatility declarations &mdash; which
+        fields are live hints rather than stored truth &mdash; are the next increment, declared
+        here and being built. Where this page describes more than the code yet does, the code is
+        what changes, not the claim.
+      </p>
     </div>
     <div id="footer" class="fragment" data-path="footer.html"></div>
   </div>
