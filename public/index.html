@@ -512,9 +512,8 @@
     fetch('/api/search/stats')
       .then(r => r.json())
       .then(s => {
-        const td = s.trustDistribution || {};
-        const trustedCount = (td.verified || 0) + (td.trusted || 0);
-        statsEl.innerHTML = `<span>${s.domains}</span> signed domains &middot; <span>${s.concepts}</span> concepts indexed &middot; <span>${trustedCount}</span> trusted`;
+        const compact = n => n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e3 ? Math.floor(n / 1e3) + 'K' : String(n);
+        statsEl.innerHTML = `<span>${s.domains}</span> signed domains &middot; <span>${s.onChainIdentities}</span> on-chain identities &middot; <span>${s.appIdentities}</span> app identities &middot; <span>${compact(s.records)}</span> records`;
       })
       .catch(() => {});
 

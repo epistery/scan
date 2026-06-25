@@ -779,7 +779,7 @@ export default class SearchHandler {
    * Index statistics
    */
   async getStats() {
-    const [domainCount, signedCount, verifiedCount, totalEntities, conceptCount, trustDistribution, appIdentities] = await Promise.all([
+    const [domainCount, signedCount, verifiedCount, totalEntities, conceptCount, trustDistribution, appIdentities, records, onChainIdentities] = await Promise.all([
       this.db.collection('entities').countDocuments({ type: 'AIDiscovery' }),
       this.db.collection('entities').countDocuments({
         type: 'AIDiscovery',
@@ -820,7 +820,16 @@ export default class SearchHandler {
         for (const r of rows) dist[r._id] = r.count;
         return dist;
       }),
-      this.db.collection('entities').countDocuments({ 'metadata.app': { $exists: true } })
+      this.db.collection('entities').countDocuments({ type: 'AppIdentity' }),
+      // Data records ingested from connected DataSources
+      this.db.collection('entities').countDocuments({ type: 'Object' }),
+      // On-chain identities = blockchain entities minus the categories we count
+      // separately (signed domains, app identities, data records). Counting by
+      // exclusion is robust to the mixed type casing in legacy rows
+      // (contract/Contract/Agent/wallet/IdentityContract/CampaignWallet).
+      this.db.collection('entities').countDocuments({
+        type: { $nin: ['AIDiscovery', 'AppIdentity', 'Object'] }
+      })
     ]);
 
     return {
@@ -828,6 +837,8 @@ export default class SearchHandler {
       signed: signedCount,
       verified: verifiedCount,
       totalEntities,
+      records,
+      onChainIdentities,
       concepts: conceptCount,
       appIdentities,
       trustDistribution,
