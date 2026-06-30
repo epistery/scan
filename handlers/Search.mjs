@@ -1,7 +1,7 @@
 import express from 'express';
 import { ethers } from 'ethers';
 import { summarizeSignals, trustLabel } from '../lib/Posture.mjs';
-import { toPresentAi } from '../lib/Present.mjs';
+import { toPresentAi, presentForLiveResult } from '../lib/Present.mjs';
 
 const ERC20_ABI = ['function balanceOf(address) view returns (uint256)'];
 const EPISTERY_ABI = [
@@ -547,7 +547,7 @@ export default class SearchHandler {
    * Normalize a child result (mcp-registry shape) into scan's result format
    */
   _normalizeChildResult(item, hostname) {
-    return {
+    const result = {
       domain: hostname,
       name: item.title || item.name,
       type: 'MCPService',
@@ -574,6 +574,8 @@ export default class SearchHandler {
       discoveryMethod: 'registry',
       lastChecked: null
     };
+    result.present = presentForLiveResult(result);
+    return result;
   }
 
   /**
@@ -1030,7 +1032,7 @@ export default class SearchHandler {
    * Format a wallet/contract chain result into the standard result shape
    */
   formatWalletResult(address, chainData) {
-    return {
+    const result = {
       domain: null,
       name: address,
       type: chainData.isContract ? 'Contract' : 'Wallet',
@@ -1060,6 +1062,8 @@ export default class SearchHandler {
       discoveryMethod: 'live-rpc',
       lastChecked: new Date()
     };
+    result.present = presentForLiveResult(result);
+    return result;
   }
 
   /**
@@ -1161,7 +1165,7 @@ export default class SearchHandler {
         if (!resp.ok) continue;
         const data = await resp.json();
 
-        results.push({
+        const proxyResult = {
           domain,
           name: match.entity.metadata?.manifest?.organization?.name || domain,
           type: 'CapabilityProxy',
@@ -1169,13 +1173,16 @@ export default class SearchHandler {
           mission: match.cap.description || null,
           capability: match.cap.name,
           capabilityScore: Math.round(match.score * 100),
-          proxyData: data,
+          endpoint: url,                 // directory handle: the agent can call this itself
+          proxyData: data,               // surfaced as present.brokered (second-class)
           trustScore: match.entity.metadata?.trustScore || 0,
           trustLabel: trustLabel(match.entity.metadata?.trustScore || 0),
           source: domain,
           discoveryMethod: 'capability-proxy',
           lastChecked: new Date(),
-        });
+        };
+        proxyResult.present = presentForLiveResult(proxyResult);
+        results.push(proxyResult);
       } catch {
         // Proxy failed — skip this source
       }
@@ -1318,6 +1325,7 @@ export default class SearchHandler {
         }
       }
 
+      result.present = presentForLiveResult(result);
       results.push(result);
      } catch (err) {
       // One malformed manifest must not blank the whole skill result set
