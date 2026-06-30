@@ -67,8 +67,15 @@ export default class EpisteryScan {
     const episteryConfig = new Config();
     await episteryConfig.setPath('/');
 
-    // Mongo config from epistery config.ini [mongo] section
-    const resolveConfig = { ...this.config, mongo: this.config.mongo || episteryConfig.data.mongo };
+    // Mongo connection from epistery config: a top-level `mongoHost=<uri>` wins
+    // (the only way to express a multi-host replica set, e.g. the rootz
+    // epistery-rs — same line the relay's /relay config uses), else the [mongo]
+    // section is assembled into a single-host URI.
+    const resolveConfig = {
+      ...this.config,
+      mongoHost: this.config.mongoHost || episteryConfig.data.mongoHost,
+      mongo: this.config.mongo || episteryConfig.data.mongo
+    };
     const mongoHost = resolveMongoHost(resolveConfig);
     const safeMongo = mongoHost.replace(/\/\/[^@]+@/, '//<credentials>@');
     console.log(`[epistery-scan] Connecting to ${safeMongo}...`);
