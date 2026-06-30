@@ -113,15 +113,37 @@ export default class EpisteryScan {
       datasources: episteryConfig.data.datasources
     };
 
+    // Which chains to ingest, and on what RPC. epistery's configuredChains()
+    // returns EVERY registered chain (mainnets + testnets) on their public
+    // default RPC — the registry can't be pruned from config, only RPC-overlaid.
+    // So selection lives here: an optional [chains] section in the scan config,
+    // keyed by the slugs below, picks the set and (optionally) the rpcUrl:
+    //
+    //   [chains.polygon]
+    //   rpcUrl=https://lb.drpc.live/polygon/<key>
+    //   [chains.ethereum]
+    //   [chains.japanopenchain]
+    //
+    // A chain is ingested iff it has a [chains.<slug>] entry whose `enabled` is
+    // not false (presence = opt-in; `enabled=false` disables without deleting).
+    // rpcUrl there wins over the chain's configuredChains() rpc. With NO [chains]
+    // section we fall back to the prior behavior — ingest every known chain on
+    // its default RPC — so existing single-config deployments are unaffected.
+    const chainsCfg = episteryConfig.data.chains || {};
+    const selectChains = Object.keys(chainsCfg).length > 0;
+    const isEnabled = (c) => c && c.enabled !== false && c.enabled !== 'false';
     for (const entry of await configuredChains()) {
       const slug = CHAIN_SLUGS[entry.chainId];
       if (!slug) continue;
+      const cfg = chainsCfg[slug];
+      if (selectChains && !isEnabled(cfg)) continue;   // selector on → only opted-in chains
       ingestionConfig.chains[slug] = {
         enabled: true,
-        rpcUrl: entry.privateRpc || entry.rpc,
+        rpcUrl: cfg?.rpcUrl || entry.privateRpc || entry.rpc,
         chainId: entry.chainId
       };
     }
+    console.log(`[epistery-scan] Ingesting chains: ${Object.keys(ingestionConfig.chains).join(', ') || '(none)'}`);
 
     this.ingestion = new IngestionManager(this.database, ingestionConfig);
     await this.ingestion.initialize();

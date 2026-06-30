@@ -4,13 +4,16 @@
     "host": "mongodb://localhost:27017/epistery-scan"
   },
   "chains": {
+    "polygon": {
+      "enabled": true,
+      "rpcUrl": "https://polygon-bor-rpc.publicnode.com"
+    },
     "ethereum": {
       "enabled": true,
-      "rpcUrl": "https://eth.llamarpc.com"
+      "rpcUrl": "https://ethereum-rpc.publicnode.com"
     },
-    "polygon": {
-      "enabled": false,
-      "rpcUrl": "https://polygon-rpc.com"
+    "japanopenchain": {
+      "enabled": true
     }
   },
   "ingestion": {
