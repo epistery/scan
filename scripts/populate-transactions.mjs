@@ -29,7 +29,7 @@ async function populateTransactions() {
   await database.initialize();
 
   // Initialize chain connectors — use registry for RPC URLs
-  const amoy = configuredChains().find(c => c.chainId === 80002);
+  const amoy = (await configuredChains()).find(c => c.chainId === 80002);
   const ingestionConfig = {
     chains: {
       'polygon-amoy': {

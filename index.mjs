@@ -113,7 +113,7 @@ export default class EpisteryScan {
       datasources: episteryConfig.data.datasources
     };
 
-    for (const entry of configuredChains()) {
+    for (const entry of await configuredChains()) {
       const slug = CHAIN_SLUGS[entry.chainId];
       if (!slug) continue;
       ingestionConfig.chains[slug] = {
