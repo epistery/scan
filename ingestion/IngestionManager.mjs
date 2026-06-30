@@ -43,7 +43,12 @@ export default class IngestionManager {
     // Register web interpreter
     const aiDiscovery = new AIDiscoveryInterpreter(this.database, {
       pollInterval: this.config.discoveryPollInterval || 86400000, // 24 hours
-      seedDomains: this.config.seedDomains || ['epistery.com', 'rootz.global', 'geist.social', 'michael.sprague.com', 'findbet.com', 'libertyproject.com']
+      seedDomains: this.config.seedDomains || ['epistery.com', 'rootz.global', 'geist.social', 'michael.sprague.com', 'findbet.com', 'libertyproject.com'],
+      // Forwarded from the root config loaded (awaited) in index.mjs, so
+      // DomainDiscovery doesn't re-read Config synchronously — which returns
+      // empty against a remote authority (epistery ≥ 2.2). See DomainDiscovery.
+      sources: this.config.sources,
+      datasources: this.config.datasources
     });
     this.registry.register('AIDiscovery', aiDiscovery, { source: 'web' });
     this.domainDiscovery = aiDiscovery.domainDiscovery;
