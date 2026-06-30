@@ -32,6 +32,11 @@ export default class DomainDiscovery {
     this.pollTimer = null;
     this.priorityTimer = null;
 
+    // [sources]/[datasources] as loaded by the host from the (possibly remote)
+    // authority and forwarded in — see the loaders for the rationale.
+    this._passedSources = config.sources;
+    this._passedDataSources = config.datasources;
+
     // Load priority sources from epistery config [sources] section
     this._loadSourcesConfig();
     this._loadDataSourcesConfig();
@@ -44,9 +49,18 @@ export default class DomainDiscovery {
    */
   _loadSourcesConfig() {
     try {
-      const cfg = new Config();
-      cfg.setPath('/');
-      const sources = cfg.data?.sources;
+      // Prefer config forwarded by the host (index.mjs loads root config with
+      // an awaited setPath and threads [sources] down). Only fall back to a
+      // self-read for standalone/script imports, where Config is LOCAL and a
+      // sync read is faithful — against a remote authority (epistery ≥ 2.2) a
+      // sync setPath('/') read returns empty, which is why we prefer the
+      // passed-in copy. (No await available here — this runs in a constructor.)
+      let sources = this._passedSources;
+      if (!sources) {
+        const cfg = new Config();
+        cfg.setPath('/');
+        sources = cfg.data?.sources;
+      }
       if (!sources || typeof sources !== 'object') return;
 
       for (const [name, url] of Object.entries(sources)) {
@@ -73,9 +87,15 @@ export default class DomainDiscovery {
    */
   _loadDataSourcesConfig() {
     try {
-      const cfg = new Config();
-      cfg.setPath('/');
-      const datasources = cfg.data?.datasources;
+      // Prefer host-forwarded [datasources] over a self-read — see
+      // _loadSourcesConfig for why a constructor-time self-read is unsafe
+      // against a remote authority (epistery ≥ 2.2).
+      let datasources = this._passedDataSources;
+      if (!datasources) {
+        const cfg = new Config();
+        cfg.setPath('/');
+        datasources = cfg.data?.datasources;
+      }
       if (!datasources || typeof datasources !== 'object') return;
 
       for (const [name, entry] of Object.entries(datasources)) {

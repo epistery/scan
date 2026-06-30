@@ -96,7 +96,14 @@ export default class EpisteryScan {
       // enrichment ([app] url in config.ini). Unset → index names/addresses
       // from the identities collection only.
       appBaseUrl: this.config.appBaseUrl || episteryConfig.data.app?.url || '',
-      appPollInterval: episteryConfig.data.app?.pollInterval || 3600000
+      appPollInterval: episteryConfig.data.app?.pollInterval || 3600000,
+      // Pass the [sources]/[datasources] sections from the root config we
+      // already loaded (awaited) above. DomainDiscovery's constructor can't
+      // await, so when config lives on a remote authority (epistery ≥ 2.2,
+      // [authority] root=/scan) a fresh sync Config().setPath('/') there would
+      // read empty. Threading them through avoids that — see DomainDiscovery.
+      sources: episteryConfig.data.sources,
+      datasources: episteryConfig.data.datasources
     };
 
     for (const entry of configuredChains()) {
@@ -372,7 +379,7 @@ if (import.meta.url === (await import('url')).pathToFileURL(process.argv[1]).hre
   // dir for each one. epistery-host mints per-domain by design; scan must not.
   // Unrecognized hosts are dropped immediately (connection closed, nginx 444-style).
   const rootConfig = new Config();
-  rootConfig.setPath('/');
+  await rootConfig.setPath('/');
   const harnessMap = rootConfig.data.harness || {};
   const scanCfg = rootConfig.data.scan || {};
   const rawMatch = scanCfg.domains ?? scanCfg.server_name ?? [];
