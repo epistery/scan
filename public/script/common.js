@@ -44,4 +44,26 @@ window.addEventListener('DOMContentLoaded', async () => {
       a.classList.add('active');
     }
   });
+
+  // Mobile drawer: hamburger toggles the sidebar; backdrop or a nav click closes it
+  const hamburger = document.getElementById('navHamburger');
+  const navPanel = document.getElementById('navPanel');
+  const navBackdrop = document.getElementById('navBackdrop');
+  if (hamburger && navPanel && navBackdrop) {
+    const closeNav = () => {
+      navPanel.classList.remove('open');
+      navBackdrop.hidden = true;
+      hamburger.setAttribute('aria-expanded', 'false');
+    };
+    const openNav = () => {
+      navPanel.classList.add('open');
+      navBackdrop.hidden = false;
+      hamburger.setAttribute('aria-expanded', 'true');
+    };
+    hamburger.addEventListener('click', () => {
+      navPanel.classList.contains('open') ? closeNav() : openNav();
+    });
+    navBackdrop.addEventListener('click', closeNav);
+    navPanel.querySelectorAll('.nav-menu a').forEach(a => a.addEventListener('click', closeNav));
+  }
 });
