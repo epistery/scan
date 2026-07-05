@@ -247,6 +247,55 @@
       line-height: 1.5;
     }
 
+    /* --- Object cards: thumbnail + facets projected from the schema map --- */
+    .result-flex {
+      display: flex;
+      gap: 1rem;
+    }
+
+    .result-thumb {
+      flex: 0 0 96px;
+    }
+
+    .result-thumb img {
+      width: 96px;
+      height: 96px;
+      object-fit: cover;
+      border-radius: 6px;
+      display: block;
+      background: #f0f4f8;
+    }
+
+    .result-content {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .result-facets {
+      margin-top: 0.5rem;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.3rem 1.25rem;
+      font-size: 0.85rem;
+      color: #444;
+    }
+
+    .facet { white-space: nowrap; }
+
+    .facet-label {
+      color: #999;
+      font-size: 0.7rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+      margin-right: 0.35rem;
+    }
+
+    @media (max-width: 480px) {
+      .result-thumb { flex-basis: 72px; }
+      .result-thumb img { width: 72px; height: 72px; }
+    }
+
     .result-concepts {
       margin-top: 0.6rem;
       display: flex;
@@ -575,11 +624,34 @@
         let countText = `${data.results.length} result${data.results.length === 1 ? '' : 's'} from the signed web`;
         if (registryCount > 0) countText += ` and ${registryCount} registr${registryCount === 1 ? 'y' : 'ies'}`;
         resultCount.textContent = countText;
-        cacheResults(data.results);
-        resultsList.innerHTML = data.results.map(renderResult).join('');
+        const balanced = balanceResults(data.results);
+        cacheResults(balanced);
+        resultsList.innerHTML = balanced.map(renderResult).join('');
       } catch (err) {
         resultsList.innerHTML = `<div class="no-results"><p>Search error: ${err.message}</p></div>`;
       }
+    }
+
+    function balanceResults(results) {
+      // Presentation policy of THIS surface, not ranking: interleave result
+      // groups (object types) round-robin, preserving in-group order, so a
+      // mixed match ("Arizona House") shows its breadth at first touch. The
+      // JSON API stays in retrieval order — consumers apply their own policy.
+      const groups = new Map();
+      for (const r of results) {
+        const key = r.objectType || r.type || 'other';
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(r);
+      }
+      if (groups.size <= 1) return results;
+      const lists = [...groups.values()];
+      const out = [];
+      for (let i = 0; out.length < results.length; i++) {
+        for (const list of lists) {
+          if (i < list.length) out.push(list[i]);
+        }
+      }
+      return out;
     }
 
     function renderResult(r) {
@@ -653,8 +725,10 @@
 
     function renderObjectResult(r) {
       // Normalized signed object (vehicle, official, property, …). Rendered
-      // true to its type, with the source never dropped. All fields guarded —
-      // objects carry none of the manifest fields the default renderer expects.
+      // true to its type: the card facets and image are projected from the
+      // object's public schema map (/api/schema), the source never dropped.
+      // Pre-schema entities carry no card — they fall back to the summary line
+      // until their next import.
       const trustBadge = ExpandResult.getTrustBadge(r);
       const typeBadge = `<span class="badge badge-open">${escapeHtml(r.objectType || 'object')}</span>`;
       const sourceBadge = '<span class="badge-source badge-source-sw">Signed Web</span>';
@@ -664,9 +738,15 @@
         ? `<a class="result-domain" href="https://${escapeAttr(r.domain)}" target="_blank" rel="noopener">${escapeHtml(sourceName)}</a>`
         : (sourceName ? `<span class="result-domain">${escapeHtml(sourceName)}</span>` : '');
 
-      const summary = r.summary
-        ? `<div class="result-mission">${escapeHtml(r.summary)}</div>`
+      const thumb = r.image
+        ? `<div class="result-thumb"><img src="${escapeAttr(r.image)}" alt="" loading="lazy" onerror="this.parentNode.style.display='none'"></div>`
         : '';
+
+      const facets = (r.card?.facets?.length)
+        ? `<div class="result-facets">${r.card.facets.slice(0, 8).map(f =>
+            `<span class="facet"><span class="facet-label">${escapeHtml(f.label)}</span>${escapeHtml(String(f.value))}</span>`
+          ).join('')}</div>`
+        : (r.summary ? `<div class="result-mission">${escapeHtml(r.summary)}</div>` : '');
 
       const metaParts = [];
       if (r.author) metaParts.push(`signed by ${escapeHtml(String(r.author).slice(0, 10))}…`);
@@ -681,14 +761,19 @@
 
       return `
         <div class="result result-object">
-          <div class="result-header">
-            <span class="result-name">${escapeHtml(r.name)}</span>
-            ${domain}
-            <span class="result-trust">${trustBadge}${typeBadge}${sourceBadge}</span>
+          <div class="result-flex">
+            ${thumb}
+            <div class="result-content">
+              <div class="result-header">
+                <span class="result-name">${escapeHtml(r.name)}</span>
+                ${domain}
+                <span class="result-trust">${trustBadge}${typeBadge}${sourceBadge}</span>
+              </div>
+              ${facets}
+              ${meta}
+              ${link}
+            </div>
           </div>
-          ${summary}
-          ${meta}
-          ${link}
         </div>
       `;
     }

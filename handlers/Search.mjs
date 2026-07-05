@@ -2,6 +2,7 @@ import express from 'express';
 import { ethers } from 'ethers';
 import { summarizeSignals, trustLabel } from '../lib/Posture.mjs';
 import { toPresentAi, presentForLiveResult } from '../lib/Present.mjs';
+import { mapFor, projectCard } from '../lib/SchemaMaps.mjs';
 
 const ERC20_ABI = ['function balanceOf(address) view returns (uint256)'];
 const EPISTERY_ABI = [
@@ -652,11 +653,19 @@ export default class SearchHandler {
       const src = entity.metadata?.source || {};
       const obj = entity.metadata?.object || {};
       const trustScore = src.trustScore || 0;
+      // Card projected at read time from the public schema map, so a map edit
+      // reaches every result without a re-import. Null for pre-schema entities
+      // (they enrich on their next import) — the UI falls back to summary.
+      const map = mapFor(obj.schema);
+      const card = (map && obj.jsonld) ? projectCard(map, obj.jsonld) : null;
       return {
         type: 'Object',
         objectType: obj.type || null,
+        schema: obj.schema || null,
         name: obj.title || entity.address,
         summary: obj.summary || null,
+        image: card?.image || obj.image || null,
+        card,
         fields: entity.metadata?.fields || null,
         domain: src.domain || null,
         url: src.url || null,

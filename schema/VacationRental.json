@@ -1,0 +1,36 @@
+{
+  "$id": "https://epistery.com/schema/VacationRental",
+  "schema": "https://schema.org/VacationRental",
+  "label": "Property",
+  "version": 1,
+  "description": "A vacation rental property. Sources serve schema.org/VacationRental objects; this map declares how scan structures them for search, display, and trust factors.",
+  "search": {
+    "title": ["name"],
+    "summary": [
+      "accommodationCategory",
+      { "path": "numberOfBedrooms", "suffix": "BR" },
+      { "path": "occupancy.value", "prefix": "sleeps " },
+      { "path": ["address.addressLocality", "address.addressRegion", "address.addressCountry"], "join": ", " }
+    ],
+    "keywords": [
+      "name", "accommodationCategory", "amenityFeature.name",
+      "address.addressLocality", "address.addressRegion", "address.addressCountry"
+    ]
+  },
+  "display": {
+    "image": "image",
+    "facets": [
+      { "label": "Type", "path": "accommodationCategory" },
+      { "label": "Bedrooms", "path": "numberOfBedrooms" },
+      { "label": "Bathrooms", "path": "numberOfBathroomsTotal" },
+      { "label": "Sleeps", "path": "occupancy.value" },
+      { "label": "Rate", "path": "priceRange" },
+      { "label": "Rating", "path": "aggregateRating.ratingValue", "suffix": " ★" },
+      { "label": "Location", "path": ["address.addressLocality", "address.addressRegion", "address.addressCountry"], "join": ", " }
+    ]
+  },
+  "trust": {
+    "note": "Reserved — per-category trust factors (e.g. rental license verification, platform cross-listing) declared here as the market defines them.",
+    "factors": []
+  }
+}

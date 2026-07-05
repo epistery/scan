@@ -1,4 +1,6 @@
 import { engineFor } from './sources/index.mjs';
+import { keywords } from './sources/util.mjs';
+import { mapFor, projectSearch, projectCard } from '../lib/SchemaMaps.mjs';
 
 /**
  * ObjectImporter
@@ -28,11 +30,11 @@ export default class ObjectImporter {
     this._importing = false; // guard against overlapping runs
   }
 
-  /** Data sources that have an import engine registered. */
+  /** Data sources that have an import engine — named adapter or declared catalog. */
   _importable() {
     const sources = this.domainDiscovery?.dataSources || [];
     return sources
-      .map(ds => ({ ds, engine: engineFor(ds.name) }))
+      .map(ds => ({ ds, engine: engineFor(ds.name, ds.skillManifest) }))
       .filter(x => x.engine);
   }
 
@@ -49,12 +51,28 @@ export default class ObjectImporter {
     }
   }
 
-  /** Build a normalized object entity from one raw source object. */
+  /**
+   * Build a normalized object entity from one raw source object.
+   *
+   * The engine projects the raw object into JSON-LD (or passes it through when
+   * the source is JSON-LD native); the public schema map for its @type then
+   * declares how that object is structured for search (title/summary/keywords)
+   * and display (image, facets). Scan projects structure — it never derives an
+   * ontology of its own. The author's raw object stays verbatim in fields.
+   */
   _normalize(ds, engine, raw, sourceMeta) {
     const id = engine.id(raw);
     if (id == null || id === '') return null;
-    const mapped = engine.map(raw, ds.url);
-    if (!mapped.title) return null;
+    const jsonld = engine.jsonld(raw, ds.url);
+    if (!jsonld) return null;
+
+    const schema = engine.schemaOf ? engine.schemaOf(raw) : engine.schema;
+    const map = mapFor(schema);
+    const digest = map
+      ? projectSearch(map, jsonld)
+      : { title: jsonld.name || null, summary: jsonld.description || null, keywords: [jsonld.name] };
+    if (!digest.title) return null;
+    const card = map ? projectCard(map, jsonld) : null;
 
     return {
       address: `${ds.name}:${id}`,
@@ -65,16 +83,19 @@ export default class ObjectImporter {
           name: ds.name,
           label: ds.label,
           domain: ds.domain,
-          url: mapped.url || `https://${ds.domain}`,
+          url: jsonld.url || `https://${ds.domain}`,
           author: sourceMeta.author,
           trustScore: sourceMeta.trustScore,
           importedAt: new Date()
         },
         object: {
-          type: engine.objectType,
-          title: mapped.title,
-          summary: mapped.summary || null,
-          keywords: mapped.keywords || []
+          type: engine.objectType || map?.label?.toLowerCase() || 'object',
+          schema: schema || null,
+          title: digest.title,
+          summary: digest.summary || null,
+          keywords: keywords(...(digest.keywords || []), ...(ds.topics || [])),
+          jsonld,
+          image: card?.image || null
         },
         fields: raw
       }

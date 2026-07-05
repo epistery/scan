@@ -1,0 +1,28 @@
+{
+  "$id": "https://epistery.com/schema/Person",
+  "schema": "https://schema.org/Person",
+  "label": "Person",
+  "version": 1,
+  "description": "A person — public officials, candidates, professionals. Sources serve schema.org/Person objects; this map declares how scan structures them for search, display, and trust factors.",
+  "search": {
+    "title": ["name"],
+    "summary": ["memberOf.name", "jobTitle", "description"],
+    "keywords": [
+      "name", "givenName", "familyName", "memberOf.name", "jobTitle",
+      "address.addressRegion", "address.addressLocality", "description"
+    ]
+  },
+  "display": {
+    "image": "image",
+    "facets": [
+      { "label": "Party", "path": "memberOf.name" },
+      { "label": "Office", "path": "jobTitle" },
+      { "label": "Status", "path": "description" },
+      { "label": "Location", "path": ["address.addressLocality", "address.addressRegion"], "join": ", " }
+    ]
+  },
+  "trust": {
+    "note": "Reserved — per-category trust factors (e.g. .gov crosslink, official roster binding) declared here as the market defines them.",
+    "factors": []
+  }
+}

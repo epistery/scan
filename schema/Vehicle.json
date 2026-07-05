@@ -1,0 +1,39 @@
+{
+  "$id": "https://epistery.com/schema/Vehicle",
+  "schema": "https://schema.org/Vehicle",
+  "label": "Vehicle",
+  "version": 1,
+  "description": "A vehicle listing. Sources serve schema.org/Vehicle objects; this map declares how scan structures them for search, display, and trust factors.",
+  "search": {
+    "title": ["name"],
+    "summary": [
+      "bodyType",
+      { "path": "mileageFromOdometer.value", "suffix": " mi" },
+      { "path": "offers.price", "prefix": "$" },
+      "fuelType",
+      { "path": ["offers.seller.name", "offers.seller.address.addressLocality", "offers.seller.address.addressRegion"], "join": ", " }
+    ],
+    "keywords": [
+      "name", "brand.name", "model", "bodyType", "fuelType", "color",
+      "vehicleTransmission", "driveWheelConfiguration",
+      "offers.seller.name", "offers.seller.address.addressLocality", "offers.seller.address.addressRegion"
+    ]
+  },
+  "display": {
+    "image": "image",
+    "facets": [
+      { "label": "Price", "path": "offers.price", "prefix": "$" },
+      { "label": "Mileage", "path": "mileageFromOdometer.value", "suffix": " mi" },
+      { "label": "Body", "path": "bodyType" },
+      { "label": "Fuel", "path": "fuelType" },
+      { "label": "Color", "path": "color" },
+      { "label": "Drivetrain", "path": "driveWheelConfiguration" },
+      { "label": "Dealer", "path": ["offers.seller.name", "offers.seller.address.addressLocality", "offers.seller.address.addressRegion"], "join": ", " },
+      { "label": "VIN", "path": "vehicleIdentificationNumber" }
+    ]
+  },
+  "trust": {
+    "note": "Reserved — per-category trust factors (e.g. VIN provenance, recall attestation) declared here as the market defines them.",
+    "factors": []
+  }
+}

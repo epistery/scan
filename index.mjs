@@ -15,6 +15,7 @@ import FeedHandler from './handlers/Feed.mjs';
 import McpProxy from './handlers/McpProxy.mjs';
 import Harness from './lib/Harness.mjs';
 import { wantsJson } from './lib/negotiate.mjs';
+import { allMaps, mapFor } from './lib/SchemaMaps.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -195,6 +196,17 @@ export default class EpisteryScan {
     router.use('/api/discovery', discoveryHandler.routes());
     router.use('/api/feed', feedHandler.routes());
     router.use('/api/mcp', mcpProxy.routes());
+
+    // Public category maps — how each declared schema is structured for
+    // search, display, and trust factors. Sources declare which schemas they
+    // resolve; these maps are the projection, published so anyone can inspect
+    // (and eventually govern) it.
+    router.get('/api/schema', (req, res) => res.json(allMaps()));
+    router.get('/api/schema/:name', (req, res) => {
+      const map = mapFor(req.params.name);
+      if (!map) return res.status(404).json({ error: `Unknown schema map: ${req.params.name}` });
+      res.json(map);
+    });
 
     // Skill proxy — top-level alias for /api/search/skill/:name/call
     router.get('/api/skill/:name/call', async (req, res) => {

@@ -105,9 +105,10 @@ export default class Database {
     // Capability index for query routing
     await this.entities.createIndex({ 'metadata.capabilities.keywords': 1 });
 
-    // Normalized signed-object lookups (filter/group by source and object type)
+    // Normalized signed-object lookups (filter/group by source, object type, schema)
     await this.entities.createIndex({ 'metadata.source.name': 1 });
     await this.entities.createIndex({ 'metadata.object.type': 1 });
+    await this.entities.createIndex({ 'metadata.object.schema': 1 });
 
     // epistery-app identity lookups (exact name + owner)
     await this.entities.createIndex({ 'metadata.app.nameLower': 1 });

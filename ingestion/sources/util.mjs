@@ -27,3 +27,14 @@ export function keywords(...parts) {
   parts.forEach(push);
   return [...out];
 }
+
+/** Drop null/undefined values and empty arrays from a flat object. */
+export function prune(obj) {
+  const out = {};
+  for (const [k, v] of Object.entries(obj)) {
+    if (v == null) continue;
+    if (Array.isArray(v) && v.length === 0) continue;
+    out[k] = v;
+  }
+  return out;
+}
