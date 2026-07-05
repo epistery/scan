@@ -353,6 +353,7 @@
       border-radius: 3px;
       font-size: 0.85rem;
     }
+      a.badge, a.badge-source, a.badge-tools { text-decoration: none; }
   </style>
 </head>
 <body>
@@ -697,8 +698,8 @@
 
     function renderWalletResult(r) {
       const typeLabel = r.type === 'Contract' ? 'Contract' : 'Wallet';
-      const typeBadge = `<span class="badge badge-chain badge-chain-${escapeAttr(r.chain || 'ethereum')}">${escapeHtml(r.chain || 'unknown')}</span>`;
-      const sourceBadge = '<span class="badge-source badge-source-sw">Chain</span>';
+      const typeBadge = `<a class="badge badge-chain badge-chain-${escapeAttr(r.chain || 'ethereum')}" href="/badges#types" title="What do the badges mean?">${escapeHtml(r.chain || 'unknown')}</a>`;
+      const sourceBadge = '<a class="badge-source badge-source-sw" href="/badges#sources" title="What do the badges mean?">Chain</a>';
       const truncAddr = r.name.slice(0, 6) + '...' + r.name.slice(-4);
 
       const balanceHtml = r.balanceFormatted
@@ -725,7 +726,7 @@
           <div class="result-header">
             <span class="result-name" style="font-family:monospace;font-size:1rem;">${escapeHtml(truncAddr)}</span>
             ${typeBadge}
-            <span class="result-trust"><span class="badge badge-open">${escapeHtml(typeLabel)}</span>${sourceBadge}</span>
+            <span class="result-trust"><a class="badge badge-open" href="/badges#types" title="What do the badges mean?">${escapeHtml(typeLabel)}</a>${sourceBadge}</span>
           </div>
           ${balanceHtml}
           ${tokensHtml}

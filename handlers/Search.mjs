@@ -697,15 +697,27 @@ export default class SearchHandler {
       if (sig.digitalNameMatch) trustScore += 20;            // contractExists
     }
 
+    // Contract-backed types that adopted the object digest (campaign, identity,
+    // agent) join the unified card path: same read-time map projection as
+    // imported objects, rendered by the same object card in the UI.
+    const obj = entity.metadata?.object || null;
+    const objMap = obj ? mapFor(obj.schema) : null;
+    const objCard = (objMap && obj.jsonld) ? projectCard(objMap, obj.jsonld) : null;
+
     const result = {
       // Identity
       domain: isDiscovery ? entity.address : (entity.metadata?.domain || app?.domain || null),
-      name: org.name || app?.name || entity.address,
+      name: org.name || app?.name || obj?.title || entity.address,
       type: entity.type,
       chain: entity.chain,
+      objectType: obj?.type || null,
+      schema: obj?.schema || null,
+      image: objCard?.image || obj?.image || null,
+      card: objCard,
+      url: obj?.jsonld?.url || null,
 
       // Authored content
-      mission: org.mission || org.description || app?.description || null,
+      mission: org.mission || org.description || app?.description || obj?.summary || null,
       tagline: org.tagline || null,
       sector: org.sector || null,
 

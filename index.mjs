@@ -374,6 +374,9 @@ export default class EpisteryScan {
     router.get('/about', (req, res) => {
       res.sendFile(path.join(__dirname, 'public/about.html'));
     });
+    router.get('/badges', (req, res) => {
+      res.sendFile(path.join(__dirname, 'public/badges.html'));
+    });
     router.get('/developers', (req, res) => {
       res.sendFile(path.join(__dirname, 'public/developers.html'));
     });

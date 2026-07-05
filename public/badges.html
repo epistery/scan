@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Badges &amp; Trust Facts — Epistery Scan</title>
+  <link rel="ai-discovery" href="/.well-known/ai">
+  <script src="/static/script/common.js"></script>
+  <script type="module">
+    import Witness from '/.well-known/epistery/lib/witness.js';
+    try {
+      window.Epistery = { witness: await Witness.connect({rootPath:'/.well-known/epistery'}) };
+    } catch(e) {
+      console.warn('[epistery] wallet init:', e.message);
+    }
+  </script>
+  <link rel="stylesheet" href="/static/style/common.css">
+  <style>
+    .content { max-width: 760px; }
+
+    /* Badge samples — same classes as the search results render */
+    .badge {
+      display: inline-block;
+      padding: 0.2rem 0.6rem;
+      border-radius: 3px;
+      font-size: 0.7rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+    }
+    .badge-verified   { background: #c8e6c9; color: #2e7d32; }
+    .badge-trusted    { background: #e8f5e9; color: #388e3c; }
+    .badge-claimed    { background: #fff9c4; color: #f57f17; }
+    .badge-discovered { background: #e3f2fd; color: #1565c0; }
+    .badge-signed     { background: #fff9c4; color: #f57f17; }
+    .badge-open       { background: #e3f2fd; color: #1565c0; }
+    .badge-live       { background: #c8e6c9; color: #2e7d32; }
+    .badge-offline    { background: #ffcdd2; color: #c62828; }
+    .badge-source {
+      display: inline-block;
+      padding: 0.15rem 0.5rem;
+      border-radius: 3px;
+      font-size: 0.65rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .badge-source-sw    { background: #e3f2fd; color: #1565c0; }
+    .badge-source-mcp   { background: #ede9fe; color: #7c3aed; }
+    .badge-source-skill { background: #e0f2f1; color: #00695c; }
+    .badge-tools {
+      display: inline-block;
+      padding: 0.15rem 0.5rem;
+      background: #f3e8ff;
+      border-radius: 3px;
+      font-size: 0.7rem;
+      color: #7c3aed;
+      font-weight: 600;
+    }
+    .signal-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      display: inline-block;
+      margin-right: 0.3rem;
+    }
+    .signal-dot.on  { background: #4caf50; }
+    .signal-dot.off { background: #e0e0e0; }
+
+    /* Definition rows: badge sample left, meaning right */
+    .legend {
+      margin: 0.75rem 0 1.25rem;
+    }
+    .legend-row {
+      display: flex;
+      gap: 1rem;
+      align-items: baseline;
+      padding: 0.5rem 0;
+      border-bottom: 1px solid #eee;
+    }
+    .legend-row:last-child { border-bottom: none; }
+    .legend-sample {
+      flex: 0 0 130px;
+    }
+    .legend-desc {
+      flex: 1;
+      min-width: 0;
+      font-size: 0.9rem;
+      color: #555;
+      line-height: 1.55;
+    }
+    .legend-desc code {
+      background: #f0f0f0;
+      padding: 0.05rem 0.35rem;
+      border-radius: 3px;
+      font-size: 0.82rem;
+    }
+  </style>
+</head>
+<body>
+  <div id="navigation" class="fragment" data-path="navigation.html"></div>
+  <div class="container">
+    <div class="content">
+      <h1>Badges &amp; Trust Facts</h1>
+      <p>
+        Scan reports <strong>facts, not verdicts</strong>. Every search result carries the
+        verifiable facts behind its origin &mdash; who signed it, what binds that signature to a
+        domain and a chain, and how long we've observed it. The badges on this site are a
+        shorthand this page renders from those facts, for human convenience. AI agents don't get
+        the badge; they get the raw facts and apply their own policy.
+      </p>
+
+      <h2 id="trust">Trust badges</h2>
+      <p>
+        Each indexed origin collects independent, checkable <a href="#signals">signals</a>. This
+        surface sums them into a score and shows a threshold label. The score is a convenience of
+        this GUI &mdash; it is deliberately absent from the agent-facing data.
+      </p>
+      <div class="legend">
+        <div class="legend-row">
+          <span class="legend-sample"><span class="badge badge-verified">Verified</span></span>
+          <span class="legend-desc">Strong standing (score &ge; 75): a signed manifest whose signing identity has an on-chain contract, with the domain and contract referencing each other.</span>
+        </div>
+        <div class="legend-row">
+          <span class="legend-sample"><span class="badge badge-trusted">Trusted</span></span>
+          <span class="legend-desc">Solid standing (score &ge; 50): signed and integrity-checked, with at least one independent binding such as DNS verification or an on-chain contract.</span>
+        </div>
+        <div class="legend-row">
+          <span class="legend-sample"><span class="badge badge-claimed">Claimed</span></span>
+          <span class="legend-desc">Self-asserted (score &ge; 25): the domain publishes a signed declaration, but nothing beyond its own word binds the signature yet.</span>
+        </div>
+        <div class="legend-row">
+          <span class="legend-sample"><span class="badge badge-discovered">Discovered</span></span>
+          <span class="legend-desc">Indexed with minimal signals (score &ge; 1): typically a structured manifest with no signature.</span>
+        </div>
+        <div class="legend-row">
+          <span class="legend-sample"><span class="badge badge-open">Open</span></span>
+          <span class="legend-desc">No proven signals. Not a judgment &mdash; simply nothing verified yet. Anyone can <a href="https://rootz.global/ai-discovery">publish and sign a manifest</a> to change this.</span>
+        </div>
+        <div class="legend-row">
+          <span class="legend-sample"><span class="badge badge-signed">Signed</span></span>
+          <span class="legend-desc">Shown for results indexed before signal scoring: a signature is present but the full signal set hasn't been collected yet.</span>
+        </div>
+      </div>
+      <p>
+        The agent-facing equivalent is the <strong>origin rung</strong> &mdash; a continuity
+        ladder derived strictly from proven signals: <code>chain-bound</code> (contract +
+        bidirectional domain binding) &rarr; <code>dns</code> &rarr; <code>claimed</code> &rarr;
+        <code>open</code>. See <a href="/about">About</a> for the full contract.
+      </p>
+
+      <h2 id="signals">Signal dots</h2>
+      <p>
+        <span class="signal-dot on"></span>green means the signal is verifiably present,
+        <span class="signal-dot off"></span>gray means it is not. Each signal is an independent
+        observation with a timestamp:
+      </p>
+      <div class="legend">
+        <div class="legend-row">
+          <span class="legend-sample"><code>manifest</code></span>
+          <span class="legend-desc">The domain publishes a structured <code>/.well-known/ai</code> manifest.</span>
+        </div>
+        <div class="legend-row">
+          <span class="legend-sample"><code>selfSigned</code></span>
+          <span class="legend-desc">The manifest carries the author's own signature &mdash; an ownership assertion.</span>
+        </div>
+        <div class="legend-row">
+          <span class="legend-sample"><code>hashValid</code></span>
+          <span class="legend-desc">The content hash still matches the signature &mdash; unchanged since signing.</span>
+        </div>
+        <div class="legend-row">
+          <span class="legend-sample"><code>contractExists</code></span>
+          <span class="legend-desc">The signing identity has a contract on chain.</span>
+        </div>
+        <div class="legend-row">
+          <span class="legend-sample"><code>domainBinding</code></span>
+          <span class="legend-desc">The domain and the contract reference each other &mdash; the strongest binding.</span>
+        </div>
+        <div class="legend-row">
+          <span class="legend-sample"><code>dnsVerified</code></span>
+          <span class="legend-desc">The DNS owner authorized AI discovery for the domain.</span>
+        </div>
+        <div class="legend-row">
+          <span class="legend-sample"><code>platform</code></span>
+          <span class="legend-desc">Served from a known platform (epistery-host) that manages keys per domain.</span>
+        </div>
+      </div>
+
+      <h2 id="sources">Source badges</h2>
+      <p>Where a result came from &mdash; the source is never dropped.</p>
+      <div class="legend">
+        <div class="legend-row">
+          <span class="legend-sample"><span class="badge-source badge-source-sw">Signed Web</span></span>
+          <span class="legend-desc">Scan's own index: signed manifests, on-chain contracts, and imported signed-object catalogs. The <span class="badge-source badge-source-sw">Chain</span> variant marks a live blockchain read.</span>
+        </div>
+        <div class="legend-row">
+          <span class="legend-sample"><span class="badge-source badge-source-mcp">MCP</span></span>
+          <span class="legend-desc">A federated result from an MCP service registry &mdash; live tool services, not stored signed objects.</span>
+        </div>
+        <div class="legend-row">
+          <span class="legend-sample"><span class="badge-source badge-source-skill">Skill</span></span>
+          <span class="legend-desc">A registered data source matched to your query by topic, returning its callable tool manifest.</span>
+        </div>
+      </div>
+
+      <h2 id="types">Type &amp; status badges</h2>
+      <div class="legend">
+        <div class="legend-row">
+          <span class="legend-sample"><span class="badge badge-open">vehicle</span></span>
+          <span class="legend-desc">An object's declared category &mdash; vehicle, official, property, and so on. Categories are public JSON-LD schemas; the projection for each is published at <code>/api/schema</code>.</span>
+        </div>
+        <div class="legend-row">
+          <span class="legend-sample"><span class="badge badge-open">polygon</span></span>
+          <span class="legend-desc">The chain a wallet or contract lives on, alongside a <span class="badge badge-open">Contract</span> or <span class="badge badge-open">Wallet</span> label for live chain reads.</span>
+        </div>
+        <div class="legend-row">
+          <span class="legend-sample"><span class="badge badge-live">Live</span> <span class="badge badge-offline">Offline</span></span>
+          <span class="legend-desc">Whether a federated MCP service answered its last health check.</span>
+        </div>
+        <div class="legend-row">
+          <span class="legend-sample"><span class="badge-tools">12 tools</span></span>
+          <span class="legend-desc">How many callable tools a service or skill exposes.</span>
+        </div>
+      </div>
+
+      <p class="note" style="font-size:0.85rem;color:#888;border-top:1px solid #eee;padding-top:0.8rem;margin-top:1.5rem;">
+        More on the model: <a href="/about">About Epistery Scan</a> &middot;
+        <a href="/developers">Developers</a> &middot;
+        <a href="/api/schema">Category maps</a> &middot;
+        <a href="/.well-known/ai">This site's own manifest</a>
+      </p>
+    </div>
+    <div id="footer" class="fragment" data-path="footer.html"></div>
+  </div>
+</body>
+</html>

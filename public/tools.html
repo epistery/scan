@@ -247,6 +247,7 @@
       color: #e65100;
       font-size: 0.9rem;
     }
+      a.badge, a.badge-source, a.badge-tools, a.badge-live, a.badge-offline { text-decoration: none; }
   </style>
 </head>
 <body>
@@ -402,11 +403,11 @@
       const tools = svc.tools_count || 0;
       const reachable = svc.reachable;
 
-      const toolsBadge = tools ? `<span class="badge-tools">${tools} tool${tools === 1 ? '' : 's'}</span>` : '';
+      const toolsBadge = tools ? `<a class="badge-tools" href="/badges#types" title="What do the badges mean?">${tools} tool${tools === 1 ? '' : 's'}</a>` : '';
       const statusBadge = reachable === true
-        ? '<span class="badge-live">Live</span>'
+        ? '<a class="badge-live" href="/badges#types" title="What do the badges mean?">Live</a>'
         : reachable === false
-          ? '<span class="badge-offline">Offline</span>'
+          ? '<a class="badge-offline" href="/badges#types" title="What do the badges mean?">Offline</a>'
           : '';
 
       return `

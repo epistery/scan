@@ -14,18 +14,23 @@ const ExpandResult = (function () {
 
   // ---- Shared result helpers (moved from page scripts) ----
 
+  // Every badge links to the legend page describing what it means.
+  function badgeLink(cls, label, anchor) {
+    return `<a class="badge ${cls}" href="/badges#${anchor}" title="What do the badges mean?">${label}</a>`;
+  }
+
   function getTrustBadge(r) {
     if (r.trustScore != null) {
       const score = r.trustScore;
-      if (score >= 75) return '<span class="badge badge-verified">Verified</span>';
-      if (score >= 50) return '<span class="badge badge-trusted">Trusted</span>';
-      if (score >= 25) return '<span class="badge badge-claimed">Claimed</span>';
-      if (score >= 1)  return '<span class="badge badge-discovered">Discovered</span>';
-      return '<span class="badge badge-open">Open</span>';
+      if (score >= 75) return badgeLink('badge-verified', 'Verified', 'trust');
+      if (score >= 50) return badgeLink('badge-trusted', 'Trusted', 'trust');
+      if (score >= 25) return badgeLink('badge-claimed', 'Claimed', 'trust');
+      if (score >= 1)  return badgeLink('badge-discovered', 'Discovered', 'trust');
+      return badgeLink('badge-open', 'Open', 'trust');
     }
-    if (r.signature?.verified) return '<span class="badge badge-verified">Verified</span>';
-    if (r.signature?.signed)   return '<span class="badge badge-signed">Signed</span>';
-    return '<span class="badge badge-open">Open</span>';
+    if (r.signature?.verified) return badgeLink('badge-verified', 'Verified', 'trust');
+    if (r.signature?.signed)   return badgeLink('badge-signed', 'Signed', 'trust');
+    return badgeLink('badge-open', 'Open', 'trust');
   }
 
   function renderSignalDots(signals) {
@@ -320,7 +325,7 @@ const ExpandResult = (function () {
       html += '<div class="expand-section">';
       html += '<div class="expand-section-title">Address</div>';
       html += `<div style="font-family:monospace;font-size:0.85rem;overflow-wrap:anywhere;">${escapeHtml(r.name)}</div>`;
-      if (r.chain) html += `<span class="badge badge-chain badge-chain-${escapeAttr(r.chain)}">${escapeHtml(r.chain)}</span>`;
+      if (r.chain) html += `<a class="badge badge-chain badge-chain-${escapeAttr(r.chain)}" href="/badges#types" title="What do the badges mean?">${escapeHtml(r.chain)}</a>`;
       html += '</div>';
 
       // Balance

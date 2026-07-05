@@ -1,0 +1,39 @@
+{
+  "$id": "https://epistery.com/schema/Campaign",
+  "schema": "https://epistery.com/schema/Campaign",
+  "label": "Campaign",
+  "version": 1,
+  "description": "An Adnet advertising campaign — a CampaignContract on chain. No schema.org type fits, so this is an epistery-published vocabulary: the contract's declared state (budget, rates, settlement rule, promotions) projected for search, display, and trust factors. The chain state is re-readable by anyone; scan's copy is a cache of it.",
+  "search": {
+    "title": ["name"],
+    "summary": [
+      "status",
+      { "path": "settlementRule", "prefix": "rule: " },
+      { "path": "budget.spent", "suffix": " POL spent" },
+      { "path": "budget.total", "prefix": "of ", "suffix": " POL" },
+      "advertiser.name"
+    ],
+    "keywords": [
+      "name", "advertiser.name", "settlementRule", "targetAudience",
+      "promotions.title", "status"
+    ]
+  },
+  "display": {
+    "image": "promotions.creative",
+    "facets": [
+      { "label": "Status", "path": "status" },
+      { "label": "Rule", "path": "settlementRule" },
+      { "label": "Advertiser", "path": "advertiser.name" },
+      { "label": "Budget", "path": "budget.total", "suffix": " POL" },
+      { "label": "Spent", "path": "budget.spent", "suffix": " POL" },
+      { "label": "Remaining", "path": "budget.remaining", "suffix": " POL" },
+      { "label": "Per view", "path": "rates.impression", "suffix": " POL" },
+      { "label": "Per click", "path": "rates.click", "suffix": " POL" },
+      { "label": "Audience", "path": "targetAudience" }
+    ]
+  },
+  "trust": {
+    "note": "Reserved — campaign trust factors (funded budget, settlement history, advertiser identity binding) declared here as the market defines them. The contract itself is the primary fact: every figure is re-readable on chain.",
+    "factors": []
+  }
+}

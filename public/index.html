@@ -23,14 +23,18 @@
 
 
     /* --- Landing state: centered search --- */
+    /* The landing owns its geometry: min-height pins centering to the
+       viewport so late-arriving siblings (nav/footer fragments) and async
+       children (stats) can't re-center it. No transition — the mode switch
+       is a single deterministic reflow, not an animated one. */
     .landing {
       display: flex;
       flex: 1 1;
       flex-direction: column;
       align-items: center;
       justify-content: center;
+      min-height: 100vh;
       padding: 2rem;
-      transition: all 0.3s ease;
     }
 
     .landing.has-results {
@@ -113,6 +117,7 @@
       font-size: 0.85rem;
       color: #aaa;
       text-align: center;
+      min-height: 1.3em; /* space negotiated before the async fetch fills it */
     }
 
     .stats span { color: #3498db; font-weight: 600; }
@@ -163,6 +168,7 @@
       font-size: 0.85rem;
       color: #999;
       margin-bottom: 1rem;
+      min-height: 1.2em; /* reserved so the count doesn't push results down */
     }
 
     .result {
@@ -215,6 +221,9 @@
       text-transform: uppercase;
       letter-spacing: 0.03em;
     }
+
+    a.badge, a.badge-source, a.badge-tools { text-decoration: none; }
+    a.badge:hover, a.badge-source:hover, a.badge-tools:hover { filter: brightness(0.94); }
 
     .badge-verified   { background: #c8e6c9; color: #2e7d32; }
     .badge-trusted    { background: #e8f5e9; color: #388e3c; }
@@ -658,12 +667,14 @@
       if (r.type === 'Skill') return renderSkillResult(r);
       if (r.type === 'MCPService') return renderMcpResult(r);
       if (r.type === 'Wallet' || r.type === 'Contract') return renderWalletResult(r);
-      if (r.type === 'Object') return renderObjectResult(r);
+      // Any result with a schema-map card (imported objects, and contract-backed
+      // types like campaigns that adopted the object digest) renders as an object.
+      if (r.type === 'Object' || r.card) return renderObjectResult(r);
 
       const trustBadge = ExpandResult.getTrustBadge(r);
       const signalDots = ExpandResult.renderSignalDots(r.signals);
 
-      const sourceBadge = '<span class="badge-source badge-source-sw">Signed Web</span>';
+      const sourceBadge = '<a class="badge-source badge-source-sw" href="/badges#sources" title="What do the badges mean?">Signed Web</a>';
 
       const domain = r.domain
         ? `<a class="result-domain" href="https://${r.domain}" target="_blank" rel="noopener">${r.domain}</a>`
@@ -730,23 +741,28 @@
       // Pre-schema entities carry no card — they fall back to the summary line
       // until their next import.
       const trustBadge = ExpandResult.getTrustBadge(r);
-      const typeBadge = `<span class="badge badge-open">${escapeHtml(r.objectType || 'object')}</span>`;
-      const sourceBadge = '<span class="badge-source badge-source-sw">Signed Web</span>';
+      const typeBadge = `<a class="badge badge-open" href="/badges#types" title="What do the badges mean?">${escapeHtml(r.objectType || 'object')}</a>`;
+      // Contract-backed objects (campaigns, identities) came from the chain,
+      // not an imported web catalog — label the source accordingly.
+      const isChainBacked = r.chain && r.chain !== 'web';
+      const sourceBadge = isChainBacked
+        ? '<a class="badge-source badge-source-sw" href="/badges#sources" title="What do the badges mean?">Chain</a>'
+        : '<a class="badge-source badge-source-sw" href="/badges#sources" title="What do the badges mean?">Signed Web</a>';
 
-      const sourceName = r.sourceLabel || r.domain || r.source || '';
+      const sourceName = r.sourceLabel || r.domain || (isChainBacked ? r.chain : r.source) || '';
       const domain = r.domain
         ? `<a class="result-domain" href="https://${escapeAttr(r.domain)}" target="_blank" rel="noopener">${escapeHtml(sourceName)}</a>`
         : (sourceName ? `<span class="result-domain">${escapeHtml(sourceName)}</span>` : '');
 
       const thumb = r.image
-        ? `<div class="result-thumb"><img src="${escapeAttr(r.image)}" alt="" loading="lazy" onerror="this.parentNode.style.display='none'"></div>`
+        ? `<div class="result-thumb"><img src="${escapeAttr(r.image)}" alt="" loading="lazy" onerror="this.style.visibility='hidden'"></div>`
         : '';
 
       const facets = (r.card?.facets?.length)
         ? `<div class="result-facets">${r.card.facets.slice(0, 8).map(f =>
             `<span class="facet"><span class="facet-label">${escapeHtml(f.label)}</span>${escapeHtml(String(f.value))}</span>`
           ).join('')}</div>`
-        : (r.summary ? `<div class="result-mission">${escapeHtml(r.summary)}</div>` : '');
+        : ((r.summary || r.mission) ? `<div class="result-mission">${escapeHtml(r.summary || r.mission)}</div>` : '');
 
       const metaParts = [];
       if (r.author) metaParts.push(`signed by ${escapeHtml(String(r.author).slice(0, 10))}…`);
@@ -781,11 +797,11 @@
     function renderMcpResult(r) {
       const mcp = r.mcpService || {};
       const statusBadge = mcp.reachable
-        ? '<span class="badge badge-live">Live</span>'
-        : '<span class="badge badge-offline">Offline</span>';
-      const sourceBadge = '<span class="badge-source badge-source-mcp">MCP</span>';
+        ? '<a class="badge badge-live" href="/badges#types" title="What do the badges mean?">Live</a>'
+        : '<a class="badge badge-offline" href="/badges#types" title="What do the badges mean?">Offline</a>';
+      const sourceBadge = '<a class="badge-source badge-source-mcp" href="/badges#sources" title="What do the badges mean?">MCP</a>';
       const toolsBadge = mcp.tools_count
-        ? `<span class="badge-tools">${mcp.tools_count} tool${mcp.tools_count === 1 ? '' : 's'}</span>`
+        ? `<a class="badge-tools" href="/badges#types" title="What do the badges mean?">${mcp.tools_count} tool${mcp.tools_count === 1 ? '' : 's'}</a>`
         : '';
 
       const mission = r.mission
@@ -817,8 +833,8 @@
 
     function renderWalletResult(r) {
       const typeLabel = r.type === 'Contract' ? 'Contract' : 'Wallet';
-      const typeBadge = `<span class="badge badge-chain badge-chain-${escapeAttr(r.chain || 'ethereum')}">${escapeHtml(r.chain || 'unknown')}</span>`;
-      const sourceBadge = '<span class="badge-source badge-source-sw">Chain</span>';
+      const typeBadge = `<a class="badge badge-chain badge-chain-${escapeAttr(r.chain || 'ethereum')}" href="/badges#types" title="What do the badges mean?">${escapeHtml(r.chain || 'unknown')}</a>`;
+      const sourceBadge = '<a class="badge-source badge-source-sw" href="/badges#sources" title="What do the badges mean?">Chain</a>';
       const truncAddr = r.name.slice(0, 6) + '...' + r.name.slice(-4);
 
       const balanceHtml = r.balanceFormatted
@@ -845,7 +861,7 @@
           <div class="result-header">
             <span class="result-name" style="font-family:monospace;font-size:1rem;">${escapeHtml(truncAddr)}</span>
             ${typeBadge}
-            <span class="result-trust"><span class="badge badge-open">${escapeHtml(typeLabel)}</span>${sourceBadge}</span>
+            <span class="result-trust"><a class="badge badge-open" href="/badges#types" title="What do the badges mean?">${escapeHtml(typeLabel)}</a>${sourceBadge}</span>
           </div>
           ${balanceHtml}
           ${tokensHtml}
@@ -858,9 +874,9 @@
 
     function renderSkillResult(r) {
       const trustBadge = ExpandResult.getTrustBadge(r);
-      const sourceBadge = '<span class="badge-source badge-source-skill">Skill</span>';
+      const sourceBadge = '<a class="badge-source badge-source-skill" href="/badges#sources" title="What do the badges mean?">Skill</a>';
       const toolsBadge = r.tools && r.tools.length
-        ? `<span class="badge-tools">${r.tools.length} tool${r.tools.length === 1 ? '' : 's'}</span>`
+        ? `<a class="badge-tools" href="/badges#types" title="What do the badges mean?">${r.tools.length} tool${r.tools.length === 1 ? '' : 's'}</a>`
         : '';
 
       const domain = r.domain

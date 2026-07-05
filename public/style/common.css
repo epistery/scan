@@ -99,14 +99,21 @@ body {
     flex-direction: column;
     flex: 1 1;
 }
+/* Fragment placeholders reserve the space their loaded content will take,
+   so the shell's geometry is settled before the fragments arrive. */
 #navigation {
     display: flex;
     flex: 0 0;
     width: 200px
 }
+@media (max-width: 720px) {
+    /* On mobile the nav becomes a fixed drawer and takes no column width —
+       the placeholder must not reserve any either. */
+    #navigation { width: 0; }
+}
 #footer {
     flex: 0 0;
-    height: 60px;
+    min-height: 60px;
 }
 
 /* Content pages (about, developers) */
