@@ -1,7 +1,7 @@
 import express from 'express';
 import { ethers } from 'ethers';
 import { summarizeSignals, trustLabel } from '../lib/Posture.mjs';
-import { toPresentAi, presentForLiveResult } from '../lib/Present.mjs';
+import { toPresentAi, presentForLiveResult, stampOriginClaims } from '../lib/Present.mjs';
 import { mapFor, projectCard } from '../lib/SchemaMaps.mjs';
 
 const ERC20_ABI = ['function balanceOf(address) view returns (uint256)'];
@@ -588,66 +588,12 @@ export default class SearchHandler {
   }
 
   /**
-   * Derive an entity's origin key — the signing identity its facts hang off.
-   * Precedence MUST mirror originFacts() in lib/Present.mjs so the claims count
-   * attaches to the same origin the present.ai packet reports.
-   */
-  _originKey(entity) {
-    const m = entity.metadata || {};
-    return m.source?.author
-      || m.verification?.digitalName
-      || m.signature?.digitalName
-      || m.manifest?._signature?.digitalName
-      || m.app?.owner
-      || null;
-  }
-
-  /**
-   * History depth, batched. Counts how many indexed objects share each origin in
-   * the result set — in ONE aggregation, not one query per result — and stamps
-   * `_originClaims` so present.ai can report it as a derived fact. On failure we
-   * leave it unset; present.ai then omits `claims` rather than emit a faked zero.
-   */
-  async _stampOriginClaims(entities) {
-    const origins = [...new Set((entities || []).map(e => this._originKey(e)).filter(Boolean))];
-    if (origins.length === 0) return;
-
-    // Group by the same origin precedence used in _originKey / originFacts.
-    const originExpr = { $ifNull: ['$metadata.source.author',
-      { $ifNull: ['$metadata.verification.digitalName',
-        { $ifNull: ['$metadata.signature.digitalName',
-          { $ifNull: ['$metadata.manifest._signature.digitalName', '$metadata.app.owner'] }] }] }] };
-
-    const counts = {};
-    try {
-      const rows = await this.db.collection('entities').aggregate([
-        { $match: { $or: [
-          { 'metadata.source.author': { $in: origins } },
-          { 'metadata.verification.digitalName': { $in: origins } },
-          { 'metadata.signature.digitalName': { $in: origins } },
-          { 'metadata.manifest._signature.digitalName': { $in: origins } },
-          { 'metadata.app.owner': { $in: origins } }
-        ] } },
-        { $group: { _id: originExpr, count: { $sum: 1 } } }
-      ]).toArray();
-      for (const r of rows) if (r._id != null) counts[r._id] = r.count;
-    } catch (err) {
-      console.warn('[search] origin claims enrichment failed:', err.message);
-      return;
-    }
-
-    for (const e of entities) {
-      const key = this._originKey(e);
-      if (key && counts[key] != null) e._originClaims = counts[key];
-    }
-  }
-
-  /**
-   * Enrich a batch of entities (origin claims) then project each to a result.
+   * Enrich a batch of entities (origin claims — see stampOriginClaims in
+   * lib/Present.mjs, the one owner) then project each to a result.
    */
   async _formatEntities(entities) {
     if (!entities?.length) return [];
-    await this._stampOriginClaims(entities);
+    await stampOriginClaims(this.db, entities);
     return entities.map(e => this.formatResult(e));
   }
 
@@ -811,7 +757,7 @@ export default class SearchHandler {
       address: new RegExp(`^${id}$`, 'i')
     });
     if (!entity) return null;
-    await this._stampOriginClaims([entity]);
+    await stampOriginClaims(this.db, [entity]);
     return this.formatResult(entity);
   }
 
@@ -900,7 +846,7 @@ export default class SearchHandler {
     });
 
     if (existing) {
-      await this._stampOriginClaims([existing]);
+      await stampOriginClaims(this.db, [existing]);
       return {
         status: 'already_indexed',
         domain,

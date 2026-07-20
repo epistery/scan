@@ -1,5 +1,5 @@
 import express from 'express';
-import { originFacts } from '../lib/Present.mjs';
+import { originFacts, stampOriginClaims } from '../lib/Present.mjs';
 import { signResponse } from '../lib/sign.mjs';
 
 /**
@@ -96,26 +96,11 @@ export default class StandingHandler {
       };
     }
 
+    // History depth — stamped by the one owner (stampOriginClaims in
+    // lib/Present.mjs), so standing and search can never disagree on the
+    // count for the same origin. Omitted on failure, never a faked zero.
+    await stampOriginClaims(this.db, [entity]);
     const origin = originFacts(entity);
-
-    // History depth for this origin — how many indexed objects share its
-    // signing address. Omitted (never a faked zero) when the count fails.
-    if (origin.address) {
-      try {
-        const claims = await this.db.collection('entities').countDocuments({
-          $or: [
-            { 'metadata.source.author': origin.address },
-            { 'metadata.verification.digitalName': origin.address },
-            { 'metadata.signature.digitalName': origin.address },
-            { 'metadata.manifest._signature.digitalName': origin.address },
-            { 'metadata.app.owner': origin.address }
-          ]
-        });
-        if (claims > 0) origin.claims = claims;
-      } catch (err) {
-        console.warn(`[standing] Claims count failed for ${domain}:`, err.message);
-      }
-    }
 
     return {
       domain,
