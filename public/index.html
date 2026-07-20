@@ -781,8 +781,11 @@
       // so it loads on click, never with the result list), the signed /status
       // read, and the chain explorer. The thumbnail above stays the on-chain
       // creative URL, which costs the campaign nothing.
-      const previewId = 'adprev-' + String(r.address || r.name).replace(/[^a-zA-Z0-9_-]/g, '');
+      const entityId = r.address || r.domain || r.name;
+      const previewId = 'adprev-' + String(entityId).replace(/[^a-zA-Z0-9_-]/g, '');
       const actions = [];
+      const isCampaign = r.objectType === 'campaign';
+      if (isCampaign) actions.push(`<a href="javascript:void(0)" onclick="ExpandResult.toggle('${escapeAttr(entityId)}')">Expand</a>`);
       if (r.ad?.render) actions.push(`<a href="javascript:void(0)" onclick="toggleAdPreview('${escapeAttr(previewId)}','${escapeAttr(r.ad.render)}')">Preview live ad</a>`);
       if (r.ad?.status) actions.push(`<a href="${escapeAttr(r.ad.status)}" target="_blank" rel="noopener">Status</a>`);
       if (r.url) actions.push(`<a href="${escapeAttr(r.url)}" target="_blank" rel="noopener">${isChainBacked ? 'View on chain' : 'View on source'}</a>`);
@@ -790,7 +793,7 @@
       const adPreview = r.ad?.render ? `<div class="ad-preview" id="${previewId}"></div>` : '';
 
       return `
-        <div class="result result-object">
+        <div class="result result-object" id="card-${escapeAttr(entityId)}">
           <div class="result-flex">
             ${thumb}
             <div class="result-content">
@@ -995,6 +998,8 @@
         let id;
         if (r.type === 'Wallet' || r.type === 'Contract') {
           id = r.name + '-' + (r.chain || '');
+        } else if (r.objectType === 'campaign') {
+          id = r.address || r.name;   // contract address — matches the card id
         } else {
           id = r.domain || r.name;
         }

@@ -119,7 +119,53 @@ export default class Database {
     await this.domains.createIndex({ active: 1 });
     await this.domains.createIndex({ lastChecked: 1 });
 
+    await this.normalizeAddressCase();
+
     console.log('[db] Database indexes created');
+  }
+
+  /**
+   * Heal address-case drift. Historically some writers stored checksummed 0x
+   * addresses while others stored lowercase, so one contract could hold two
+   * rows differing only by case (both satisfy the unique index — different
+   * strings). The convention is now lowercase-on-write (see saveEntity); this
+   * idempotent boot pass converges existing data:
+   *  - a mixed-case row with a lowercase twin merges into ONE row, preferring
+   *    the interpreter-typed row over a bare live-RPC Contract/Wallet stub and
+   *    keeping the earliest _created;
+   *  - a mixed-case row with no twin is simply lowercased;
+   *  - mixed-case event entityIds are lowercased so per-entity event queries
+   *    (exact match) see the whole history.
+   */
+  async normalizeAddressCase() {
+    const mixed = await this.entities.find({ address: /[A-Z]/ }).toArray();
+    let merged = 0, renamed = 0;
+    for (const row of mixed) {
+      const lower = row.address.toLowerCase();
+      const twin = await this.entities.findOne({ address: lower });
+      if (twin) {
+        const bare = (t) => t === 'Contract' || t === 'Wallet';
+        const keep = bare(row.type) && !bare(twin.type) ? twin : row;
+        const drop = keep === row ? twin : row;
+        const created = [keep._created, drop._created].filter(Boolean).sort()[0] || null;
+        await this.entities.deleteOne({ _id: drop._id });
+        await this.entities.updateOne(
+          { _id: keep._id },
+          { $set: { address: lower, ...(created ? { _created: created } : {}) } }
+        );
+        merged++;
+      } else {
+        await this.entities.updateOne({ _id: row._id }, { $set: { address: lower } });
+        renamed++;
+      }
+    }
+    const events = await this.events.updateMany(
+      { entityId: /[A-Z]/ },
+      [{ $set: { entityId: { $toLower: '$entityId' } } }]
+    );
+    if (merged || renamed || events.modifiedCount) {
+      console.log(`[db] Address case normalized: ${merged} merged, ${renamed} renamed, ${events.modifiedCount} events`);
+    }
   }
 
   /**
@@ -171,6 +217,12 @@ export default class Database {
    * Uses address (unique indexed) as the lookup key. Do NOT set `_id` — Mongo
    * forbids changing an existing document's _id, which previously caused
    * monitors to fail every cycle and re-hit the RPC.
+   *
+   * The stored address is ALWAYS lowercased — the collection's one case
+   * convention. Callers pass checksummed 0x addresses freely; storing them
+   * verbatim while other writers store lowercase produced case-twin duplicate
+   * rows (the unique index treats them as different strings). Display
+   * checksumming is presentation, done at projection time.
    */
   async saveEntity(entity) {
     const now = new Date();
@@ -179,6 +231,7 @@ export default class Database {
 
     const doc = {
       ...entity,
+      address: entity.address.toLowerCase(),
       _created: existing?._created || now,
       _modified: now
     };

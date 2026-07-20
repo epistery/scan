@@ -74,6 +74,13 @@ const ExpandResult = (function () {
 
   function getTabsForType(r) {
     const type = r.type || 'AIDiscovery';
+    if (type === 'CampaignWallet' || r.objectType === 'campaign') {
+      return [
+        { id: 'overview', label: 'Campaign' },
+        { id: 'activity', label: 'Activity' },
+        { id: 'manifest', label: 'Raw' }
+      ];
+    }
     if (type === 'Wallet' || type === 'Contract') {
       return [
         { id: 'overview', label: 'Overview' },
@@ -197,7 +204,87 @@ const ExpandResult = (function () {
 
   // ---- Tab renderers ----
 
+  /**
+   * Campaign synopsis — a polygonscan-style read of the CampaignContract
+   * crossed with the interpreter's rendering of it: the on-chain figures,
+   * each promotion with its creative and destination link, and the factory's
+   * serving routes. Data is the digest jsonld projected at index time (r.jsonld).
+   */
+  function renderCampaignOverview(r) {
+    const j = r.jsonld || {};
+    const mono = 'font-family:monospace;font-size:0.82rem;overflow-wrap:anywhere;';
+    const addr = (a) => a ? `<span style="${mono}">${escapeHtml(a)}</span>` : '';
+    let html = '';
+
+    // Contract synopsis
+    html += '<div class="expand-section">';
+    html += '<div class="expand-section-title">Contract</div>';
+    html += `<div>${addr(r.address)}`;
+    if (r.chain) html += ` <a class="badge badge-chain badge-chain-${escapeAttr(r.chain)}" href="/badges#types" title="What do the badges mean?">${escapeHtml(r.chain)}</a>`;
+    if (r.url) html += ` <a href="${escapeAttr(r.url)}" target="_blank" rel="noopener" style="font-size:0.82rem;color:#3498db;">view on explorer</a>`;
+    html += '</div>';
+    const rows = [];
+    if (j.status) rows.push(['Status', j.status]);
+    if (j.settlementRule) rows.push(['Settlement rule', j.settlementRule]);
+    const b = j.budget || {};
+    if (b.total != null) rows.push(['Budget', `${b.total} ${b.currency || 'POL'}`]);
+    if (b.spent != null) rows.push(['Spent', `${b.spent} ${b.currency || 'POL'}`]);
+    if (b.remaining != null) rows.push(['Remaining', `${b.remaining} ${b.currency || 'POL'}`]);
+    const rates = j.rates || {};
+    if (rates.impression != null) rows.push(['Per view', `${rates.impression} ${rates.currency || 'POL'}`]);
+    if (rates.click != null) rows.push(['Per click', `${rates.click} ${rates.currency || 'POL'}`]);
+    if (j.targetAudience) rows.push(['Audience', j.targetAudience]);
+    html += '<table class="token-list"><tbody>';
+    for (const [label, value] of rows) {
+      html += `<tr><td style="color:#999;">${escapeHtml(label)}</td><td>${escapeHtml(String(value))}</td></tr>`;
+    }
+    html += '</tbody></table>';
+    html += '</div>';
+
+    // Parties
+    html += '<div class="expand-section">';
+    html += '<div class="expand-section-title">Parties</div>';
+    if (j.advertiser) {
+      html += `<div><strong>Advertiser:</strong> ${escapeHtml(j.advertiser.name || '')} ${addr(j.advertiser.wallet)}</div>`;
+    }
+    if (j.agency) html += `<div><strong>Agency:</strong> ${addr(j.agency)}</div>`;
+    html += '</div>';
+
+    // Promotions — the declared creatives with their destination links
+    const promos = j.promotions || [];
+    if (promos.length > 0) {
+      html += '<div class="expand-section">';
+      html += `<div class="expand-section-title">${promos.length} Promotion${promos.length === 1 ? '' : 's'}</div>`;
+      for (const p of promos) {
+        html += '<div style="display:flex;gap:0.75rem;margin-bottom:0.6rem;align-items:flex-start;">';
+        if (p.creative) {
+          html += `<img src="${escapeAttr(p.creative)}" alt="" loading="lazy" style="width:64px;height:64px;object-fit:cover;border-radius:4px;background:#f0f4f8;flex-shrink:0;" onerror="this.style.visibility='hidden'">`;
+        }
+        html += '<div style="min-width:0;">';
+        if (p.title) html += `<div><strong>${escapeHtml(p.title)}</strong></div>`;
+        if (p.subtitle) html += `<div style="font-size:0.85rem;color:#666;">${escapeHtml(p.subtitle)}</div>`;
+        if (p.link) html += `<div style="font-size:0.8rem;overflow-wrap:anywhere;"><a href="${escapeAttr(p.link)}" target="_blank" rel="noopener" style="color:#3498db;">${escapeHtml(p.link)}</a></div>`;
+        html += '</div></div>';
+      }
+      html += '</div>';
+    }
+
+    // Serving routes — the factory's public surface for this contract
+    const loc = j.locators || r.ad || {};
+    if (loc.render || loc.link) {
+      html += '<div class="expand-section">';
+      html += '<div class="expand-section-title">Serving Routes</div>';
+      if (loc.render) html += `<div style="font-size:0.82rem;"><strong>Render:</strong> <a href="${escapeAttr(loc.render)}" target="_blank" rel="noopener" style="${mono}color:#3498db;">${escapeHtml(loc.render)}</a> <span style="color:#aaa;">— serves the ad; each fetch is a recorded view</span></div>`;
+      if (loc.link) html += `<div style="font-size:0.82rem;"><strong>Click:</strong> <a href="${escapeAttr(loc.link)}" target="_blank" rel="noopener" style="${mono}color:#3498db;">${escapeHtml(loc.link)}</a> <span style="color:#aaa;">— tracked redirect to the advertiser</span></div>`;
+      if (loc.status) html += `<div style="font-size:0.82rem;"><strong>Status:</strong> <a href="${escapeAttr(loc.status)}" target="_blank" rel="noopener" style="${mono}color:#3498db;">${escapeHtml(loc.status)}</a></div>`;
+      html += '</div>';
+    }
+
+    return html;
+  }
+
   function renderOverviewTab(r) {
+    if (r.objectType === 'campaign' && (r.jsonld || r.card)) return renderCampaignOverview(r);
     let html = '';
 
     // Organization
@@ -482,6 +569,11 @@ const ExpandResult = (function () {
     if (events.length === 0) {
       return '<div style="padding:1rem;color:#999;">No activity recorded.</div>';
     }
+    const pol = (wei) => {
+      const n = Number(wei) / 1e18;
+      return Number.isFinite(n) ? `${n} POL` : '';
+    };
+    const trunc = (a) => a ? a.slice(0, 6) + '...' + a.slice(-4) : '';
     let html = '<div class="event-list">';
     events.forEach(ev => {
       const date = ev.timestamp ? new Date(ev.timestamp).toLocaleString() : '';
@@ -492,8 +584,24 @@ const ExpandResult = (function () {
           <strong>${escapeHtml(type)}</strong>
           <span style="font-size:0.78rem;color:#aaa;">${escapeHtml(date)}</span>
         </div>`;
-      if (chain) html += `<div style="font-size:0.78rem;color:#999;">Chain: ${escapeHtml(chain)}</div>`;
-      if (ev.txHash) html += `<div style="font-size:0.78rem;color:#999;overflow-wrap:anywhere;">Tx: ${escapeHtml(ev.txHash)}</div>`;
+      // Campaign settlement/payout events carry their own figures — show them.
+      const detail = [];
+      if (ev.impressions != null) detail.push(`${Number(ev.impressions).toLocaleString()} views`);
+      if (ev.clicks != null) detail.push(`${Number(ev.clicks).toLocaleString()} clicks`);
+      if (ev.payout != null) detail.push(`payout ${pol(ev.payout)}`);
+      if (ev.amount != null) detail.push(pol(ev.amount));
+      if (ev.publisher) detail.push(`publisher <span style="font-family:monospace;">${escapeHtml(trunc(ev.publisher))}</span>`);
+      if (detail.length) html += `<div style="font-size:0.8rem;color:#555;">${detail.join(' &middot; ')}</div>`;
+      const tx = ev.txHash || ev.transactionHash;
+      const explorer = TX_EXPLORERS[chain];
+      if (tx) {
+        const label = `<span style="font-family:monospace;">${escapeHtml(trunc(tx))}</span>`;
+        html += `<div style="font-size:0.78rem;color:#999;">Tx: ${explorer
+          ? `<a href="${explorer}/tx/${escapeHtml(tx)}" target="_blank" rel="noopener" style="color:#3498db;">${label}</a>`
+          : label}${chain ? ` on ${escapeHtml(chain)}` : ''}</div>`;
+      } else if (chain) {
+        html += `<div style="font-size:0.78rem;color:#999;">Chain: ${escapeHtml(chain)}</div>`;
+      }
       html += '</div>';
     });
     html += '</div>';

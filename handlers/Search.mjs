@@ -300,10 +300,18 @@ export default class SearchHandler {
         results.meta.total = entities.length;
       }
 
+      // Chains already answered by a stored entity for this exact address —
+      // the indexed row (campaign, identity, …) IS that chain's result; a
+      // second live-RPC row for the same contract is a duplicate.
+      const coveredChains = new Set(
+        entities.filter(e => addrRegex.test(e.address) && e.chain).map(e => e.chain)
+      );
+
       // Live chain query — runs in parallel across all configured chains
       if (this.ingestion?.connectors) {
         try {
-          const chainResults = await this.queryChainForAddress(q);
+          const chainResults = (await this.queryChainForAddress(q))
+            .filter(cr => !coveredChains.has(cr.chain));
           for (const cr of chainResults) {
             results.results.push(this.formatWalletResult(q, cr));
           }
@@ -720,6 +728,10 @@ export default class SearchHandler {
       // campaign's factory render/link/status). The UI uses `render` for the
       // live ad preview; agents get the same URLs via present.actions.
       ad: obj?.jsonld?.locators || null,
+      // The full projected digest for contract-backed types — the expanded
+      // view renders the interpreter's whole reading (promotions, links,
+      // rates) without a second fetch.
+      jsonld: obj?.jsonld || null,
 
       // Authored content
       mission: org.mission || org.description || app?.description || obj?.summary || null,
@@ -1104,11 +1116,22 @@ export default class SearchHandler {
   }
 
   /**
-   * Upsert address data into entities collection for future lookups
+   * Upsert address data into entities collection for future lookups.
+   *
+   * A live-RPC read is the SHALLOWEST fact scan holds about an address — it
+   * must never overwrite an interpreter-owned entity (campaign, identity,
+   * agent). This once wholesale-replaced a CampaignWallet row's type and
+   * metadata because the filter matched it; now only bare Wallet/Contract
+   * stubs (or nothing) are written over.
    */
   async _backgroundIndexAddress(address, chainResults) {
     const now = new Date();
     for (const cr of chainResults) {
+      const existing = await this.db.collection('entities').findOne(
+        { address: address.toLowerCase(), chain: cr.chain },
+        { projection: { type: 1 } }
+      );
+      if (existing && existing.type !== 'Contract' && existing.type !== 'Wallet') continue;
       await this.db.collection('entities').updateOne(
         { address: address.toLowerCase(), chain: cr.chain },
         {

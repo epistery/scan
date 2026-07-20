@@ -87,9 +87,14 @@ export default class IngestionManager {
       throw new Error(`Unknown entity type: ${type}`);
     }
 
+    // Lowercase throughout — the storage convention (see Database.saveEntity).
+    // Passing the caller's checksummed form to sync() stamped mixed-case
+    // entity/event ids while the poll loop used the lowercase monitor row.
+    address = address.toLowerCase();
+
     // Add to monitors collection
     await this.database.addMonitor({
-      address: address.toLowerCase(),
+      address,
       chain,
       type,
       active: true,

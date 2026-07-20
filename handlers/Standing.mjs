@@ -1,6 +1,6 @@
 import express from 'express';
-import crypto from 'crypto';
 import { originFacts } from '../lib/Present.mjs';
+import { signResponse } from '../lib/sign.mjs';
 
 /**
  * Standing — the settlement-time read.
@@ -53,20 +53,8 @@ export default class StandingHandler {
         const standing = await this.standing(domain);
 
         // Sign for provenance — the evidence bundle can carry this verbatim.
-        const signer = req.app.locals.epistery?.signer;
-        if (signer) {
-          try {
-            const canonical = JSON.stringify(standing);
-            const hash = crypto.createHash('sha256').update(canonical).digest('hex');
-            const signature = await signer.signMessage(hash);
-            const address = await signer.getAddress();
-            standing.signed = { hash, signature, signer: address };
-          } catch {
-            // Signing optional — the facts stand on their own.
-          }
-        }
-
-        res.json(standing);
+        // One signing shape for every scan surface (lib/sign.mjs).
+        res.json(await signResponse(standing, req.app.locals.epistery?.signer));
       } catch (error) {
         console.error('[standing] Error:', error.message);
         res.status(500).json({ error: error.message });

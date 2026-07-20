@@ -47,6 +47,12 @@ export default class MonitorHandler {
           });
         }
 
+        // Chain monitors poll RPC by address — a malformed one (a literal
+        // "undefined" once landed here) just errors on every cycle.
+        if (!/^0x[0-9a-f]{40}$/i.test(address)) {
+          return res.status(400).json({ error: `Invalid contract address: ${address}` });
+        }
+
         // Add monitor via ingestion manager
         if (!this.ingestion) {
           return res.status(503).json({ error: 'Ingestion not initialized' });
@@ -66,23 +72,32 @@ export default class MonitorHandler {
 
     /**
      * Remove a monitor
-     * DELETE /api/monitor/:address
+     * DELETE /api/monitor/:address[?chain=polygon]
+     * Without ?chain, deactivates the address on every chain — the old
+     * silent default of "ethereum" deactivated nothing and reported success.
      */
     router.delete('/:address', async (req, res) => {
       try {
-        const address = req.params.address;
-        const chain = req.query.chain || 'ethereum';
+        const address = req.params.address.toLowerCase();
+        const chain = req.query.chain;
 
         if (!this.ingestion) {
           return res.status(503).json({ error: 'Ingestion not initialized' });
         }
 
-        await this.ingestion.removeMonitor(address, chain);
+        let removed;
+        if (chain) {
+          await this.ingestion.removeMonitor(address, chain);
+          removed = `${address} on ${chain}`;
+        } else {
+          const result = await this.db.collection('monitors').updateMany(
+            { address, active: true },
+            { $set: { active: false, _modified: new Date() } }
+          );
+          removed = `${address} on ${result.modifiedCount} chain${result.modifiedCount === 1 ? '' : 's'}`;
+        }
 
-        res.json({
-          success: true,
-          message: `Monitor removed for ${address} on ${chain}`
-        });
+        res.json({ success: true, message: `Monitor removed for ${removed}` });
       } catch (error) {
         console.error('[monitor] Error removing monitor:', error);
         res.status(500).json({ error: error.message });
