@@ -38,7 +38,7 @@ export default class IngestionManager {
     // Register blockchain interpreters
     this.registry.register('Agent', new AgentInterpreter(this.connectors, this.database), { source: 'blockchain' });
     this.registry.register('IdentityContract', new IdentityContractInterpreter(this.connectors, this.database), { source: 'blockchain' });
-    this.registry.register('CampaignWallet', new CampaignWalletInterpreter(this.connectors, this.database), { source: 'blockchain' });
+    this.registry.register('CampaignWallet', new CampaignWalletInterpreter(this.connectors, this.database, { factory: this.config.adnet?.factory }), { source: 'blockchain' });
 
     // Register web interpreter
     const aiDiscovery = new AIDiscoveryInterpreter(this.database, {

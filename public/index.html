@@ -305,6 +305,11 @@
       .result-thumb img { width: 72px; height: 72px; }
     }
 
+    /* --- Live ad preview: the campaign's own /render fragment, on demand --- */
+    .ad-preview { display: none; margin-top: 0.75rem; }
+    .ad-preview-frame { max-width: 400px; }
+    .ad-preview-note { font-size: 0.72rem; color: #aaa; margin-top: 0.3rem; }
+
     .result-concepts {
       margin-top: 0.6rem;
       display: flex;
@@ -771,9 +776,18 @@
         ? `<div class="result-meta">${metaParts.join(' &middot; ')}</div>`
         : '';
 
-      const link = r.url
-        ? `<div class="result-actions"><a href="${escapeAttr(r.url)}" target="_blank" rel="noopener">View on source</a></div>`
-        : '';
+      // Campaign digests carry the factory's serving routes (r.ad): a live ad
+      // preview via /render (fetching it is a recorded view on the campaign —
+      // so it loads on click, never with the result list), the signed /status
+      // read, and the chain explorer. The thumbnail above stays the on-chain
+      // creative URL, which costs the campaign nothing.
+      const previewId = 'adprev-' + String(r.address || r.name).replace(/[^a-zA-Z0-9_-]/g, '');
+      const actions = [];
+      if (r.ad?.render) actions.push(`<a href="javascript:void(0)" onclick="toggleAdPreview('${escapeAttr(previewId)}','${escapeAttr(r.ad.render)}')">Preview live ad</a>`);
+      if (r.ad?.status) actions.push(`<a href="${escapeAttr(r.ad.status)}" target="_blank" rel="noopener">Status</a>`);
+      if (r.url) actions.push(`<a href="${escapeAttr(r.url)}" target="_blank" rel="noopener">${isChainBacked ? 'View on chain' : 'View on source'}</a>`);
+      const link = actions.length ? `<div class="result-actions">${actions.join('')}</div>` : '';
+      const adPreview = r.ad?.render ? `<div class="ad-preview" id="${previewId}"></div>` : '';
 
       return `
         <div class="result result-object">
@@ -788,6 +802,7 @@
               ${facets}
               ${meta}
               ${link}
+              ${adPreview}
             </div>
           </div>
         </div>
@@ -930,6 +945,34 @@
           ${expandLink}
         </div>
       `;
+    }
+
+    // Fetch and embed the campaign's own ad fragment. The factory escapes the
+    // creative fields server-side; the fragment's click-through goes through
+    // the tracked /link route. Loading is a recorded served view on the
+    // campaign, which is why it only happens on this click.
+    async function toggleAdPreview(id, renderUrl) {
+      const el = document.getElementById(id);
+      if (!el) return;
+      if (el.dataset.loaded) {
+        el.style.display = el.style.display === 'none' ? 'block' : 'none';
+        return;
+      }
+      el.dataset.loaded = '1';
+      el.style.display = 'block';
+      el.innerHTML = '<div class="ad-preview-note">Loading live ad&hellip;</div>';
+      try {
+        // Card format carries the headline, subtitle, and brand; the locator
+        // contract allows a format segment ahead of the address.
+        const res = await fetch(renderUrl.replace(/\/render\//, '/render/card/'));
+        if (!res.ok) throw new Error('render responded ' + res.status);
+        const fragment = await res.text();
+        el.innerHTML = `<div class="ad-preview-frame">${fragment}</div>`
+          + '<div class="ad-preview-note">Live ad served by the campaign\'s factory &mdash; this view is recorded, and the click-through is tracked.</div>';
+        for (const a of el.querySelectorAll('a')) { a.target = '_blank'; a.rel = 'noopener'; }
+      } catch (err) {
+        el.innerHTML = `<div class="ad-preview-note">Ad preview unavailable (${escapeHtml(err.message)})</div>`;
+      }
     }
 
     function renderEmpty(q) {

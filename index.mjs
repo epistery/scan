@@ -16,6 +16,8 @@ import McpProxy from './handlers/McpProxy.mjs';
 import Harness from './lib/Harness.mjs';
 import { wantsJson } from './lib/negotiate.mjs';
 import { allMaps, mapFor } from './lib/SchemaMaps.mjs';
+import { originFacts } from './lib/Present.mjs';
+import { signResponse } from './lib/sign.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -208,6 +210,38 @@ export default class EpisteryScan {
       res.json(map);
     });
 
+    // Publisher standing — the settlement-time read (EpisteryScan wiki,
+    // AdnetWhitepaper2026v4). The origin-facts block for a domain: rung,
+    // signals, signature standing, age, history depth — facts, no verdict —
+    // signed by scan so an evidence bundle can carry the standing it was
+    // judged against. Adnet settlement and the Exchange consume this instead
+    // of re-deriving rungs from the raw /api/discovery entity; the same read
+    // is open to any competing matcher.
+    router.get('/api/standing/:domain', async (req, res) => {
+      try {
+        const domain = String(req.params.domain).trim().toLowerCase();
+        const entity = await this.db.collection('entities').findOne({
+          address: domain, type: 'AIDiscovery'
+        });
+        if (!entity) {
+          // Unknown domain — kick discovery so the next read can answer.
+          const discovering = !!this.ingestion?.domainDiscovery;
+          this.ingestion?.domainDiscovery?.checkDomain(domain).catch(() => {});
+          return res.status(404).json({ error: 'Domain not indexed', domain, discovering });
+        }
+        await searchHandler._stampOriginClaims([entity]);   // history depth
+        const response = {
+          domain,
+          standing: originFacts(entity),
+          observed: entity._modified || entity._created || null
+        };
+        res.json(await signResponse(response, req.app.locals.epistery?.signer));
+      } catch (error) {
+        console.error('[scan] Standing error:', error.message);
+        res.status(500).json({ error: error.message });
+      }
+    });
+
     // Skill proxy — top-level alias for /api/search/skill/:name/call
     router.get('/api/skill/:name/call', async (req, res) => {
       try {
@@ -293,25 +327,12 @@ export default class EpisteryScan {
             }));
 
             // Sign the response for provenance
-            const response = {
+            let response = {
               query: req.query.q,
               ...results,
               sources: sources.length > 0 ? sources : undefined,
             };
-
-            const signer = req.app.locals.epistery?.signer;
-            if (signer) {
-              try {
-                const crypto = await import('crypto');
-                const canonical = JSON.stringify(response);
-                const hash = crypto.createHash('sha256').update(canonical).digest('hex');
-                const signature = await signer.signMessage(hash);
-                const address = await signer.getAddress();
-                response.signed = { hash, signature, signer: address };
-              } catch {
-                // Signing optional — continue without it
-              }
-            }
+            response = await signResponse(response, req.app.locals.epistery?.signer);
 
             if (req.query.apikey) {
               response.apikey_echo = req.query.apikey;
@@ -522,6 +543,7 @@ if (import.meta.url === (await import('url')).pathToFileURL(process.argv[1]).hre
           search: { url: '/api/search?q={query}', method: 'GET', description: 'Search by address, tx hash, or domain.' },
           discovery: { url: '/api/discovery', methods: ['GET', 'POST'], description: 'GET lists indexed domains. POST {domain} to submit a new domain for indexing.' },
           discoveryDetail: { url: '/api/discovery/{domain}', method: 'GET', description: 'Full manifest and crawl state for a specific domain.' },
+          standing: { url: '/api/standing/{domain}', method: 'GET', description: 'A publisher domain\'s verifiable standing — rung, signals, signature, age, history depth. Facts, no verdict; signed. The settlement-time read for Adnet and any matcher.' },
           events: { url: '/api/events', method: 'GET', description: 'Query blockchain events by entityId, type, chain.' },
           monitor: { url: '/api/monitor', methods: ['GET', 'POST'], description: 'List or add monitored blockchain contracts.' },
           feed: { url: '/api/feed', method: 'GET', description: 'Recent changes feed of indexed domains.' },

@@ -707,6 +707,7 @@ export default class SearchHandler {
     const result = {
       // Identity
       domain: isDiscovery ? entity.address : (entity.metadata?.domain || app?.domain || null),
+      address: entity.address,
       name: org.name || app?.name || obj?.title || entity.address,
       type: entity.type,
       chain: entity.chain,
@@ -715,6 +716,10 @@ export default class SearchHandler {
       image: objCard?.image || obj?.image || null,
       card: objCard,
       url: obj?.jsonld?.url || null,
+      // The owner's own serving routes when the digest declares them (a
+      // campaign's factory render/link/status). The UI uses `render` for the
+      // live ad preview; agents get the same URLs via present.actions.
+      ad: obj?.jsonld?.locators || null,
 
       // Authored content
       mission: org.mission || org.description || app?.description || obj?.summary || null,
@@ -1148,7 +1153,10 @@ export default class SearchHandler {
     const matches = [];
 
     for (const entity of entities) {
+      // Only scan's array shape routes here; a manifest's object-map shape
+      // (see actionsFor in lib/Present.mjs) has no keywords to score.
       const caps = entity.metadata.capabilities || [];
+      if (!Array.isArray(caps)) continue;
       for (const cap of caps) {
         if (!cap.keywords || !cap.endpoint) continue;
         // Score: how many query words match capability keywords

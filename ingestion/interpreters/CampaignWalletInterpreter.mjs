@@ -35,10 +35,17 @@ function pol(v) {
  * card/search path as every other signed object.
  */
 export default class CampaignWalletInterpreter {
-  constructor(connector, database) {
+  constructor(connector, database, options = {}) {
     this.connector = connector;
     this.database = database;
     this.type = 'CampaignWallet';
+
+    // The Agency's factory host — the serving surface whose public routes take
+    // the campaign contract address as the universal locator (/render, /link).
+    // Config `adnet.factory` overrides; today's one live factory is the
+    // default. GET {factory}/render/{address} returns the ad fragment (and
+    // records a served view); /link is the tracked click-through.
+    this.factory = String(options.factory || 'https://adnet.geistm.com').replace(/\/+$/, '');
 
     this.abi = [
       // Current CampaignContract
@@ -178,7 +185,18 @@ export default class CampaignWalletInterpreter {
       },
       promotions: (m.promotions || []).filter(p => p.active),
       chain,
-      url: EXPLORERS[chain] ? `${EXPLORERS[chain]}${address}` : null
+      url: EXPLORERS[chain] ? `${EXPLORERS[chain]}${address}` : null,
+      // The Factory's public routes, keyed off the contract address (the
+      // universal locator). `render` serves the live ad fragment — fetching it
+      // records a served view on the campaign — `link` is the tracked
+      // click-through. A format segment may be inserted before the address
+      // (render/card/{address}). `status` (the signed transparency read) is
+      // declared in the whitepaper but not yet served by the factory; it joins
+      // here when it answers.
+      locators: {
+        render: `${this.factory}/render/${address}`,
+        link: `${this.factory}/link/${address}`
+      }
     };
 
     const map = mapFor(CAMPAIGN_SCHEMA);
