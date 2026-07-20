@@ -12,6 +12,7 @@ import EventHandler from './handlers/Event.mjs';
 import FetchHandler from './handlers/Fetch.mjs';
 import DiscoveryHandler from './handlers/Discovery.mjs';
 import FeedHandler from './handlers/Feed.mjs';
+import StandingHandler from './handlers/Standing.mjs';
 import McpProxy from './handlers/McpProxy.mjs';
 import Harness from './lib/Harness.mjs';
 import { wantsJson } from './lib/negotiate.mjs';
@@ -181,6 +182,7 @@ export default class EpisteryScan {
     const fetchHandler = new FetchHandler(this.connector);
     const discoveryHandler = new DiscoveryHandler(this.connector);
     const feedHandler = new FeedHandler(this.connector);
+    const standingHandler = new StandingHandler(this.connector);
     const mcpProxy = new McpProxy(this.connector, this.harness);
 
     // Link handlers to ingestion
@@ -188,6 +190,7 @@ export default class EpisteryScan {
     monitorHandler.setIngestion(this.ingestion);
     fetchHandler.setIngestion(this.ingestion);
     feedHandler.setIngestion(this.ingestion);
+    standingHandler.setIngestion(this.ingestion);
     discoveryHandler.setDomainDiscovery(this.ingestion.domainDiscovery);
 
     // Mount API routes
@@ -197,6 +200,7 @@ export default class EpisteryScan {
     router.use('/api/fetch', fetchHandler.routes());
     router.use('/api/discovery', discoveryHandler.routes());
     router.use('/api/feed', feedHandler.routes());
+    router.use('/api/standing', standingHandler.routes());
     router.use('/api/mcp', mcpProxy.routes());
 
     // Public category maps — how each declared schema is structured for
@@ -547,6 +551,7 @@ if (import.meta.url === (await import('url')).pathToFileURL(process.argv[1]).hre
           events: { url: '/api/events', method: 'GET', description: 'Query blockchain events by entityId, type, chain.' },
           monitor: { url: '/api/monitor', methods: ['GET', 'POST'], description: 'List or add monitored blockchain contracts.' },
           feed: { url: '/api/feed', method: 'GET', description: 'Recent changes feed of indexed domains.' },
+          standing: { url: '/api/standing/{domain}', method: 'GET', description: 'A publisher domain\'s verifiable standing — rung (chain-bound/dns/claimed/open), signals, signature facts, age, history depth. The settlement-time read: facts, no verdict; responses signed by scan.' },
           stats: { url: '/api/search/stats', method: 'GET', description: 'Index statistics — domains, concepts, verified count.' },
           submit: { url: '/api/search/submit', method: 'POST', description: 'Submit a domain for discovery. Body: { domain }.' },
           mcpCategories: { url: '/api/mcp/categories', method: 'GET', description: 'MCP service categories from the registry.' },

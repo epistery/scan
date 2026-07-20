@@ -1,16 +1,8 @@
 import { ethers } from 'ethers';
-import { mapFor, projectSearch, projectCard } from '../../lib/SchemaMaps.mjs';
+import { buildObjectDigest } from '../../lib/SchemaMaps.mjs';
+import { explorerUrl } from '../../lib/Explorers.mjs';
 
 const CAMPAIGN_SCHEMA = 'https://epistery.com/schema/Campaign';
-
-// Block-explorer address pages, per chain slug — the campaign's locator.
-const EXPLORERS = {
-  polygon: 'https://polygonscan.com/address/',
-  'polygon-amoy': 'https://amoy.polygonscan.com/address/',
-  ethereum: 'https://etherscan.io/address/',
-  sepolia: 'https://sepolia.etherscan.io/address/',
-  japanopenchain: 'https://explorer.japanopenchain.org/address/'
-};
 
 /** Wei → POL as a number (readable in summaries/facets; raw wei kept alongside). */
 function pol(v) {
@@ -163,10 +155,14 @@ export default class CampaignWalletInterpreter {
    * so campaigns search and render through the one unified path.
    */
   _buildObjectDigest(address, chain, m) {
+    // Storage is lowercase (Database.saveEntity); URLs and labels get the
+    // EIP-55 checksummed form — presentation only.
+    let display = address;
+    try { display = ethers.getAddress(address); } catch { /* keep as-is */ }
     const jsonld = {
       '@context': 'https://epistery.com/schema',
       '@type': 'Campaign',
-      name: m.name || `Campaign ${address.slice(0, 10)}…`,
+      name: m.name || `Campaign ${display.slice(0, 10)}…`,
       status: m.active === true ? 'active' : (m.active === false ? 'paused' : null),
       settlementRule: m.settlementRule || null,
       advertiser: m.advertiser || null,
@@ -185,7 +181,7 @@ export default class CampaignWalletInterpreter {
       },
       promotions: (m.promotions || []).filter(p => p.active),
       chain,
-      url: EXPLORERS[chain] ? `${EXPLORERS[chain]}${address}` : null,
+      url: explorerUrl(chain, display),
       // The Factory's public routes, keyed off the contract address (the
       // universal locator). `render` serves the live ad fragment — fetching it
       // records a served view on the campaign — `link` is the tracked
@@ -194,25 +190,17 @@ export default class CampaignWalletInterpreter {
       // declared in the whitepaper but not yet served by the factory; it joins
       // here when it answers.
       locators: {
-        render: `${this.factory}/render/${address}`,
-        link: `${this.factory}/link/${address}`
+        render: `${this.factory}/render/${display}`,
+        link: `${this.factory}/link/${display}`
       }
     };
 
-    const map = mapFor(CAMPAIGN_SCHEMA);
-    const digest = map ? projectSearch(map, jsonld) : { title: jsonld.name, summary: null, keywords: [jsonld.name] };
-    const card = map ? projectCard(map, jsonld) : null;
-    return {
+    return buildObjectDigest({
       type: 'campaign',
       schema: CAMPAIGN_SCHEMA,
-      title: digest.title || jsonld.name,
-      summary: digest.summary || null,
-      keywords: [...new Set([...(digest.keywords || []).flatMap(k =>
-        String(k).toLowerCase().split(/[^a-z0-9]+/).filter(t => t.length > 1)
-      ), 'campaign', 'adnet', 'advertising'])],
       jsonld,
-      image: card?.image || null
-    };
+      extraKeywords: ['campaign', 'adnet', 'advertising']
+    });
   }
 
   async processEvents(address, chain, fromBlock, toBlock) {

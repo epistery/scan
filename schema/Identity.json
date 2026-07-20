@@ -1,0 +1,31 @@
+{
+  "$id": "https://epistery.com/schema/Identity",
+  "schema": "https://epistery.com/schema/Identity",
+  "label": "Identity",
+  "version": 1,
+  "description": "An epistery digital identity — an IdentityContract on chain: a collection of interchangeable device keys (rivets), any of which can act for it. Epistery-published vocabulary; the contract state is re-readable by anyone, scan's copy is a cache of it.",
+  "search": {
+    "title": ["name"],
+    "summary": [
+      { "path": "rivets.count", "suffix": " rivets" },
+      "domain",
+      "variant"
+    ],
+    "keywords": ["name", "domain", "variant"]
+  },
+  "display": {
+    "image": "image",
+    "facets": [
+      { "label": "Rivets", "path": "rivets.count" },
+      { "label": "Domain", "path": "domain" },
+      { "label": "Owner", "path": "ownerShort" },
+      { "label": "Variant", "path": "variant" },
+      { "label": "Version", "path": "version" },
+      { "label": "Messages", "path": "messageCount" }
+    ]
+  },
+  "trust": {
+    "note": "Reserved — identity trust factors (rivet count and age, delegate status, domain binding) declared here as the market defines them. The contract itself is the primary fact.",
+    "factors": []
+  }
+}
