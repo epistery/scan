@@ -1,0 +1,33 @@
+{
+  "$id": "https://epistery.com/schema/FuelTaxRate",
+  "schema": "https://epistery.com/schema/FuelTaxRate",
+  "label": "FuelTaxRate",
+  "version": 1,
+  "description": "A motor-fuel tax rate — one jurisdiction, one quarter (IFTA diesel rate + surcharge as served by fuel.rootz.global, source iftach.org). Epistery-published vocabulary; schema.org has no tax-rate type. Rates change quarterly, so the period is part of the object's identity.",
+  "search": {
+    "title": ["name"],
+    "summary": [
+      { "path": "totalRate", "prefix": "$", "suffix": "/gal total" },
+      "stateName",
+      "quarter",
+      "source"
+    ],
+    "keywords": [
+      "name", "state", "stateName", "quarter", "source"
+    ]
+  },
+  "display": {
+    "facets": [
+      { "label": "State", "path": "stateName" },
+      { "label": "Quarter", "path": "quarter" },
+      { "label": "Diesel rate", "path": "dieselRate", "prefix": "$", "suffix": "/gal" },
+      { "label": "Surcharge", "path": "surcharge", "prefix": "$", "suffix": "/gal" },
+      { "label": "Total", "path": "totalRate", "prefix": "$", "suffix": "/gal" },
+      { "label": "Source", "path": "source" }
+    ]
+  },
+  "trust": {
+    "note": "Reserved — jurisdictional rate proof points as the market defines them.",
+    "factors": []
+  }
+}

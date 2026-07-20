@@ -1,0 +1,33 @@
+{
+  "$id": "https://epistery.com/schema/FuelPrice",
+  "schema": "https://epistery.com/schema/FuelPrice",
+  "label": "FuelPrice",
+  "version": 1,
+  "description": "A retail fuel price observation — one area, one product, one weekly period (EIA retail series as served by fuel.rootz.global). No schema.org type fits a price observation, so this is an epistery-published vocabulary. The source signs the series; each object links back to its living origin, where the current week is always fresher than any index.",
+  "search": {
+    "title": ["name"],
+    "summary": [
+      { "path": "price", "prefix": "$", "suffix": "/gal" },
+      "areaName",
+      { "path": "period", "prefix": "week of " },
+      "source"
+    ],
+    "keywords": [
+      "name", "fuelType", "areaName", "area", "productName", "source"
+    ]
+  },
+  "display": {
+    "facets": [
+      { "label": "Price", "path": "price", "prefix": "$", "suffix": "/gal" },
+      { "label": "Area", "path": "areaName" },
+      { "label": "Product", "path": "productName" },
+      { "label": "Fuel", "path": "fuelType" },
+      { "label": "Week of", "path": "period" },
+      { "label": "Source", "path": "source" }
+    ]
+  },
+  "trust": {
+    "note": "Reserved — the observation's proof points (source series id, signer standing) declared here as the market defines them.",
+    "factors": []
+  }
+}
