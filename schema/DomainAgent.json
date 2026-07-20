@@ -1,0 +1,30 @@
+{
+  "$id": "https://epistery.com/schema/DomainAgent",
+  "schema": "https://epistery.com/schema/DomainAgent",
+  "label": "DomainAgent",
+  "version": 1,
+  "description": "An epistery domain contract (Agent.sol from epistery-host) — a domain's on-chain presence: its host key, owner, and access lists. Epistery-published vocabulary; the contract state is re-readable by anyone, scan's copy is a cache of it.",
+  "search": {
+    "title": ["name"],
+    "summary": [
+      { "path": "aclListCount", "suffix": " access lists" },
+      "version",
+      "chain"
+    ],
+    "keywords": ["name", "domain", "aclLists"]
+  },
+  "display": {
+    "image": "image",
+    "facets": [
+      { "label": "Domain", "path": "domain" },
+      { "label": "Host", "path": "hostShort" },
+      { "label": "Owner", "path": "ownerShort" },
+      { "label": "Lists", "path": "aclLists" },
+      { "label": "Version", "path": "version" }
+    ]
+  },
+  "trust": {
+    "note": "Reserved — domain trust factors (bidirectional domain binding, host key continuity) declared here as the market defines them. The domainBinding signal already feeds the rung ladder.",
+    "factors": []
+  }
+}

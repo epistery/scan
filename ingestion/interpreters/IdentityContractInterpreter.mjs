@@ -1,3 +1,9 @@
+import { computeTrustScore } from '../../lib/Posture.mjs';
+import { buildObjectDigest } from '../../lib/SchemaMaps.mjs';
+import { explorerUrl, shortAddress } from '../../lib/Explorers.mjs';
+
+const IDENTITY_SCHEMA = 'https://epistery.com/schema/Identity';
+
 /**
  * IdentityContractInterpreter
  *
@@ -104,6 +110,44 @@ export default class IdentityContractInterpreter {
     }
 
     if (metadata.owner) metadata.owner = metadata.owner.toLowerCase();
+
+    // Trust signals — same facts the Agent interpreter collects: the contract
+    // exists, and its declared domain may bind back via an indexed manifest.
+    const now = new Date();
+    const signals = { contractExists: { present: true, at: now, address } };
+    if (metadata.domain) {
+      const domainEntity = await this.database.getEntity(metadata.domain);
+      signals.domainBinding = {
+        present: !!domainEntity && domainEntity.type === 'AIDiscovery',
+        at: now,
+        domain: metadata.domain
+      };
+    } else {
+      signals.domainBinding = { present: false, at: now };
+    }
+    metadata.signals = signals;
+    metadata.trustScore = computeTrustScore(signals);
+
+    // Object digest — identities join the unified card/search path.
+    metadata.object = buildObjectDigest({
+      type: 'identity',
+      schema: IDENTITY_SCHEMA,
+      jsonld: {
+        '@context': 'https://epistery.com/schema',
+        '@type': 'Identity',
+        name: metadata.fullName || metadata.identityName || `Identity ${shortAddress(address)}`,
+        domain: metadata.domain || null,
+        owner: metadata.owner || null,
+        ownerShort: shortAddress(metadata.owner),
+        variant: metadata.variant,
+        version: metadata.version || null,
+        rivets: { count: metadata.rivetCount, addresses: metadata.rivets },
+        messageCount: metadata.messageCount ?? null,
+        chain,
+        url: explorerUrl(chain, address)
+      },
+      extraKeywords: ['identity', 'rivets']
+    });
 
     const entity = await this.database.saveEntity({
       address,

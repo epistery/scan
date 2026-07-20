@@ -1,16 +1,8 @@
 import { ethers } from 'ethers';
-import { mapFor, projectSearch, projectCard } from '../../lib/SchemaMaps.mjs';
+import { buildObjectDigest } from '../../lib/SchemaMaps.mjs';
+import { explorerUrl } from '../../lib/Explorers.mjs';
 
 const CAMPAIGN_SCHEMA = 'https://epistery.com/schema/Campaign';
-
-// Block-explorer address pages, per chain slug — the campaign's locator.
-const EXPLORERS = {
-  polygon: 'https://polygonscan.com/address/',
-  'polygon-amoy': 'https://amoy.polygonscan.com/address/',
-  ethereum: 'https://etherscan.io/address/',
-  sepolia: 'https://sepolia.etherscan.io/address/',
-  japanopenchain: 'https://explorer.japanopenchain.org/address/'
-};
 
 /** Wei → POL as a number (readable in summaries/facets; raw wei kept alongside). */
 function pol(v) {
@@ -178,23 +170,15 @@ export default class CampaignWalletInterpreter {
       },
       promotions: (m.promotions || []).filter(p => p.active),
       chain,
-      url: EXPLORERS[chain] ? `${EXPLORERS[chain]}${address}` : null
+      url: explorerUrl(chain, address)
     };
 
-    const map = mapFor(CAMPAIGN_SCHEMA);
-    const digest = map ? projectSearch(map, jsonld) : { title: jsonld.name, summary: null, keywords: [jsonld.name] };
-    const card = map ? projectCard(map, jsonld) : null;
-    return {
+    return buildObjectDigest({
       type: 'campaign',
       schema: CAMPAIGN_SCHEMA,
-      title: digest.title || jsonld.name,
-      summary: digest.summary || null,
-      keywords: [...new Set([...(digest.keywords || []).flatMap(k =>
-        String(k).toLowerCase().split(/[^a-z0-9]+/).filter(t => t.length > 1)
-      ), 'campaign', 'adnet', 'advertising'])],
       jsonld,
-      image: card?.image || null
-    };
+      extraKeywords: ['campaign', 'adnet', 'advertising']
+    });
   }
 
   async processEvents(address, chain, fromBlock, toBlock) {

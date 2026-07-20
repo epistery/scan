@@ -1,4 +1,8 @@
 import { computeTrustScore } from '../../lib/Posture.mjs';
+import { buildObjectDigest } from '../../lib/SchemaMaps.mjs';
+import { explorerUrl, shortAddress } from '../../lib/Explorers.mjs';
+
+const DOMAIN_AGENT_SCHEMA = 'https://epistery.com/schema/DomainAgent';
 
 /**
  * AgentInterpreter
@@ -91,6 +95,13 @@ export default class AgentInterpreter {
         // No version, that's fine
       }
 
+      // Try to read the declared access lists
+      try {
+        metadata.aclLists = Array.from(await contract.getListNames());
+      } catch (e) {
+        // No lists, that's fine
+      }
+
       // Build trust signals for the Agent
       const now = new Date();
       const signals = {
@@ -126,6 +137,28 @@ export default class AgentInterpreter {
       metadata.signals = signals;
       metadata.trustScore = computeTrustScore(signals);
       metadata.identityLinks = identityLinks;
+
+      // Object digest — domain agents join the unified card/search path.
+      metadata.object = buildObjectDigest({
+        type: 'domain',
+        schema: DOMAIN_AGENT_SCHEMA,
+        jsonld: {
+          '@context': 'https://epistery.com/schema',
+          '@type': 'DomainAgent',
+          name: metadata.domain || `Agent ${shortAddress(address)}`,
+          domain: metadata.domain || null,
+          host: metadata.host || null,
+          hostShort: shortAddress(metadata.host),
+          owner: metadata.owner || null,
+          ownerShort: shortAddress(metadata.owner),
+          version: metadata.version || null,
+          aclLists: (metadata.aclLists || []).join(', ') || null,
+          aclListCount: metadata.aclLists?.length ?? null,
+          chain,
+          url: explorerUrl(chain, address)
+        },
+        extraKeywords: ['domain', 'agent', 'host']
+      });
 
       // Save entity
       const entity = await this.database.saveEntity({
