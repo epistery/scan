@@ -1,0 +1,33 @@
+{
+  "$id": "https://schema.org/GasStation",
+  "schema": "https://schema.org/GasStation",
+  "label": "GasStation",
+  "version": 1,
+  "description": "A fueling station or truck stop — schema.org/GasStation as served by fuel.rootz.global's station registry (NREL/DOE, chain harvests). Standard vocabulary; the source declares location, brand, fuels, and amenities.",
+  "search": {
+    "title": ["name"],
+    "summary": [
+      "brand",
+      { "path": ["address.addressLocality", "address.addressRegion"], "join": ", " },
+      { "path": "fuelTypes", "all": true, "join": "/" }
+    ],
+    "keywords": [
+      "name", "brand", "address.addressLocality", "address.addressRegion",
+      "fuelTypes", "amenities"
+    ]
+  },
+  "display": {
+    "facets": [
+      { "label": "Chain", "path": "brand" },
+      { "label": "City", "path": "address.addressLocality" },
+      { "label": "State", "path": "address.addressRegion" },
+      { "label": "Fuel", "path": "fuelTypes", "all": true, "join": ", " },
+      { "label": "Amenities", "path": "amenities", "all": true, "join": ", " },
+      { "label": "Source", "path": "source" }
+    ]
+  },
+  "trust": {
+    "note": "Reserved — station-registry proof points (registry id, last confirmed observation) as the market defines them.",
+    "factors": []
+  }
+}
