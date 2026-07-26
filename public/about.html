@@ -86,63 +86,58 @@
       <h1>About Epistery Scan</h1>
       <p>
         Epistery Scan is a <strong>registry of things with known origin</strong>. It indexes
-        data and services that have been signed by their author &mdash; a car listing, an
-        identity contract, an advertising campaign, a shipment of produce, a page of recipes
-        &mdash; so that an AI agent (or a person) can find them, verify who published them,
-        and pull the live source on demand.
+        data and services that have been signed by their author, so that an AI agent or a
+        person can find them, verify who published them, and retrieve the live source on
+        demand.
       </p>
       <p>
-        We do not scrape, rank, or interpret. We require only one thing: that what we index
-        was signed by an origin you can trace. The web was never keyed, so it never had
-        continuity &mdash; and without continuity, reputation has nowhere to accrue except
-        inside a handful of platforms that grant it. Scan is the missing substrate: a place
-        where a signing identity can build a verifiable history, and where the market &mdash;
-        not Scan &mdash; decides what that history is worth.
+        Scan does not scrape, rank, or interpret. The single requirement for indexing is that
+        the object was signed by an origin that can be traced. The web was not built with keys,
+        so it has no continuity of identity, and reputation accrues only inside the platforms
+        that grant it. Scan supplies the missing substrate: a place where a signing identity
+        accumulates a verifiable history, and where the value of that history is judged outside
+        the index.
       </p>
 
       <h2>The purpose</h2>
       <p>
-        AI now has to consume the live web and trust it, and the live web is a poor source:
-        stale, wrapped in SEO sludge, and impossible to attribute to its origin. Ask a model
-        for a used Honda Civic in northern Arizona and it goes to Reddit &mdash; an opinion of
-        unknown age from an account of unknown provenance. Scan exists so that the answer can
-        instead be a <em>signed, current, navigable</em> object straight from the dealer, with
-        a cryptographic trail back to who published it.
+        AI systems now consume the live web and must trust it. Web content is frequently stale,
+        shaped for search placement, and difficult to attribute to an origin. Scan exists so
+        that a result can instead be a signed, current, navigable object with a cryptographic
+        trail back to its publisher.
       </p>
       <p>
-        We are not trying to make a business of the index itself. It is infrastructure &mdash;
-        a tool first, and one day a utility that disappears into the fabric of the web. Many
-        ventures need it; this is the shared spine they stand on.
+        The index is not intended as a business in itself. It is infrastructure &mdash; a tool
+        first, and eventually a utility. Several ventures depend on it; it is the shared layer
+        beneath them.
       </p>
 
       <h2>How it works</h2>
       <p>
-        Think of Scan as an interplanetary Mongo: a registry that <em>knows</em> documents it
-        does not <em>manage</em>. Each data source has an import engine that normalizes its
-        objects into one searchable shape &mdash; preserving the author's type, intent, and
-        provenance &mdash; so a single query reaches vehicles, contracts, identities, and
-        signed pages at once. Every object keeps three tiers, Mongo-style and loosely typed:
+        Scan is a registry that knows documents it does not manage. Each data source has an
+        import engine that normalizes its objects into one searchable shape, preserving the
+        author's type, intent, and provenance, so that a single query reaches every indexed
+        type at once. Every object carries three tiers of fields, loosely typed:
       </p>
       <ul>
-        <li><strong>Required</strong> &mdash; origin, source, type, and the time we first knew it</li>
-        <li><strong>Known</strong> &mdash; the fields a type implies (a vehicle carries a VIN; a campaign carries rates)</li>
-        <li><strong>Arbitrary</strong> &mdash; whatever else the author chose to sign, carried verbatim</li>
+        <li><strong>Required</strong> &mdash; origin, source, type, and the time the object was first observed</li>
+        <li><strong>Known</strong> &mdash; the fields implied by the object's type</li>
+        <li><strong>Arbitrary</strong> &mdash; whatever else the author signed, carried verbatim</li>
       </ul>
       <p>
-        Scan stores a searchable <em>digest</em> and a <strong>locator</strong> &mdash; a handle
-        to the live, signed source. The origin is the truth; the index is a pointer to it. When
-        a result matters, the locator is pulled and the origin's signature is verified at that
-        moment, so what you act on is current and provably from the source. Scan hands over the
-        handle; it does not stand in the middle and re-serve the content. The moment it did, it
-        would break the very signature chain that makes it worth using.
+        Scan stores a searchable <strong>digest</strong> and a <strong>locator</strong>: a handle
+        to the live, signed source. The origin is the record; the index is a pointer to it. When
+        a result is acted on, the locator is retrieved and the origin's signature verified at
+        that moment, so the content is current and provably from the source. Scan hands over the
+        handle and does not re-serve the content, which would break the signature chain.
       </p>
 
       <h2>Trust without an arbiter</h2>
       <p>
-        Scan has no trust score. Scoring is interpretation, and an interpreter is an arbiter
-        &mdash; the role we exist to remove. Instead, every result carries the <strong>verifiable
-        facts</strong> from which trust can be built, and you (or your agent, or this site's own
-        surface) build it yourself:
+        Scan does not compute a trust score. Scoring is interpretation, and an interpreter is an
+        arbiter &mdash; the role Scan exists to remove. Every result instead carries the
+        <strong>verifiable facts</strong> from which trust is derived by the consumer: a person,
+        an agent, or this site's own surface.
       </p>
       <ul class="ladder">
         <li class="rung-chain"><code>chain-bound</code> &mdash; the signing identity has an on-chain contract bound bidirectionally to its domain</li>
@@ -151,18 +146,18 @@
         <li class="rung-open"><code>open</code> &mdash; published, unsigned</li>
       </ul>
       <p>
-        Alongside the rung we report the signature facts (signed, verified against an on-chain
-        identity, method) and the origin's <em>age</em> &mdash; derived from the first event we
-        observed for it. A key that has been signing for years is a different proposition than
-        one minted yesterday; Scan states that as a fact and lets you weigh it. Any badge you
-        see on this site is computed at the surface from these facts, and you can recompute it.
+        Alongside the rung, Scan reports the signature facts (signed, verified against an
+        on-chain identity, method) and the origin's <em>age</em>, derived from the first event
+        observed for it. The duration of a signing history is reported as a fact and weighed by
+        the consumer. Badges shown on this site are computed at the surface from these facts and
+        can be recomputed independently.
       </p>
 
       <h2>For AI agents</h2>
       <p>
-        Agents are the real audience. Every result is returned in one fixed envelope &mdash;
-        <code>present.ai</code> &mdash; identical in shape for a car, an identity, or a pallet
-        of lettuce, so a client can bind to it once and rely on it every time:
+        Agents are the primary audience. Every result is returned in one fixed envelope,
+        <code>present.ai</code>, identical in shape for every object type, so that a client can
+        bind to it once:
       </p>
       <pre class="contract">{
   "type": "vehicle",
@@ -181,22 +176,20 @@
   "actions": [ { "name": "contact_seller", "invoke": "https://dealer.example/contact/8842", "needs": "none" } ]
 }</pre>
       <p>
-        The <code>facets</code> are loose and source-shaped; the envelope around them is rigid.
-        <code>origin</code> is facts, never a score. <code>freshness.live</code> names the fields
-        whose stored value is only a hint &mdash; pull the locator to trust them. <code>actions</code>
-        are advertised, never brokered: each resolves to the origin's own endpoint, invoked with
-        your epistery identity. The intended habit is simple &mdash; ask your agent to
-        <em>&ldquo;find me a used Honda Civic in northern Arizona, use epistery&rdquo;</em> and let it
-        navigate signed objects instead of scraping opinions.
+        The <code>facets</code> are loose and source-shaped; the envelope around them is fixed.
+        <code>origin</code> carries facts, not a score. <code>freshness.live</code> names the
+        fields whose stored value is a hint only &mdash; the locator must be retrieved to trust
+        them. <code>actions</code> are advertised, not brokered: each resolves to the origin's
+        own endpoint and is invoked with the caller's epistery identity.
       </p>
 
       <h2>For publishers</h2>
       <p>
         Publish a signed <code>/.well-known/ai</code> manifest describing yourself and how you
-        wish your content shared, and Scan will discover, index, and present it &mdash; with you
-        in control of the message and the origin provably yours. The
+        wish your content shared, and Scan will discover, index, and present it. The publisher
+        controls the representation, and the origin remains provably theirs. The
         <a href="https://rootz.global/ai-discovery">AI Discovery Standard</a> and its plugins
-        generate that representation for you. Enter your domain in search, or use the
+        generate that manifest. Enter a domain in search, or use the
         <a href="/discovery">Discovery</a> page to check any domain.
       </p>
 
@@ -227,12 +220,12 @@
       </p>
 
       <p class="note">
-        Honest status: the fixed <code>present.ai</code> envelope, the origin rung, signature
-        facts, age, history depth (an origin's count of indexed objects), locator, and advertised
-        actions are live for indexed objects today. Per-type volatility declarations &mdash; which
-        fields are live hints rather than stored truth &mdash; are the next increment, declared
-        here and being built. Where this page describes more than the code yet does, the code is
-        what changes, not the claim.
+        Status: the fixed <code>present.ai</code> envelope, the origin rung, signature facts,
+        age, history depth (an origin's count of indexed objects), locator, and advertised
+        actions are live for indexed objects today. Per-type volatility declarations &mdash;
+        which fields are live hints rather than stored values &mdash; are the next increment,
+        declared here and under construction. Where this page describes more than the code
+        implements, the code is what changes.
       </p>
     </div>
     <div id="footer" class="fragment" data-path="footer.html"></div>

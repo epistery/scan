@@ -69,6 +69,9 @@ export default class EpisteryScan {
     // Load epistery config early — used for OCI, chains, ingestion
     const episteryConfig = new Config();
     await episteryConfig.setPath('/');
+    if (process.env.PROFILE === 'DEV') {
+      await episteryConfig.setPath('/scan');
+    }
 
     // Mongo connection from epistery config: a top-level `mongoHost=<uri>` wins
     // (the only way to express a multi-host replica set, e.g. the rootz

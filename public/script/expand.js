@@ -70,6 +70,19 @@ const ExpandResult = (function () {
     return num.toFixed(4).replace(/\.?0+$/, '');
   }
 
+  // ---- Entity identity ----
+
+  // Single source of truth for a result's expand/cache id. Card templates,
+  // the page result cache, and programmatic toggles must all agree on this
+  // key or ExpandResult.toggle silently no-ops.
+  function entityIdFor(r) {
+    if (r.type === 'Wallet' || r.type === 'Contract') return r.name + '-' + (r.chain || '');
+    if (r.objectType === 'campaign') return r.address || r.name;
+    if (r.type === 'Object' || r.card) return r.address || r.domain || r.name;
+    if (r.type === 'Skill' || r.type === 'MCPService') return r.name || r.domain;
+    return r.domain || r.name;
+  }
+
   // ---- Tab configuration per entity type ----
 
   function getTabsForType(r) {
@@ -739,6 +752,7 @@ const ExpandResult = (function () {
   return {
     init,
     toggle,
+    entityIdFor,
     closeExpand,
     switchTab,
     getTrustBadge,

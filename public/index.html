@@ -641,6 +641,11 @@
         const balanced = balanceResults(data.results);
         cacheResults(balanced);
         resultsList.innerHTML = balanced.map(renderResult).join('');
+        // An exact hit (e.g. a complete address) deserves its detail up front.
+        if (balanced.length === 1) {
+          const id = ExpandResult.entityIdFor(balanced[0]);
+          if (id) ExpandResult.toggle(id);
+        }
       } catch (err) {
         resultsList.innerHTML = `<div class="no-results"><p>Search error: ${err.message}</p></div>`;
       }
@@ -716,7 +721,7 @@
         ? `<div class="claim-link"><a href="https://rootz.global/ai-discovery" target="_blank" rel="noopener">Claim this listing</a> &mdash; add a signature to own your search result</div>`
         : '';
 
-      const entityId = r.domain || r.name;
+      const entityId = ExpandResult.entityIdFor(r);
       const expandLink = `<div class="result-actions"><a href="javascript:void(0)" onclick="ExpandResult.toggle('${escapeAttr(entityId)}')">Expand</a></div>`;
       const cardId = ` id="card-${escapeAttr(entityId)}"`;
 
@@ -781,7 +786,7 @@
       // so it loads on click, never with the result list), the signed /status
       // read, and the chain explorer. The thumbnail above stays the on-chain
       // creative URL, which costs the campaign nothing.
-      const entityId = r.address || r.domain || r.name;
+      const entityId = ExpandResult.entityIdFor(r);
       const previewId = 'adprev-' + String(entityId).replace(/[^a-zA-Z0-9_-]/g, '');
       const actions = [];
       const isCampaign = r.objectType === 'campaign';
@@ -832,7 +837,7 @@
 
       const caps = ExpandResult.renderCapabilities(r.capabilities);
 
-      const entityId = r.name || r.domain;
+      const entityId = ExpandResult.entityIdFor(r);
       const expandLink = `<div class="result-actions"><a href="javascript:void(0)" onclick="ExpandResult.toggle('${escapeAttr(entityId)}')">Expand</a></div>`;
 
       return `
@@ -871,7 +876,7 @@
         ? `<div class="result-apps"><strong>${typeLabel}</strong>${r.contractMeta.domain ? ' &mdash; ' + escapeHtml(r.contractMeta.domain) : ''}</div>`
         : '';
 
-      const entityId = r.name + '-' + (r.chain || '');
+      const entityId = ExpandResult.entityIdFor(r);
       const expandLink = `<div class="result-actions"><a href="javascript:void(0)" onclick="ExpandResult.toggle('${escapeAttr(entityId)}')">Expand</a></div>`;
 
       return `
@@ -930,7 +935,7 @@
         ? `<div class="result-meta">${metaParts.join(' &middot; ')}</div>`
         : '';
 
-      const entityId = r.name || r.domain;
+      const entityId = ExpandResult.entityIdFor(r);
       const expandLink = `<div class="result-actions"><a href="javascript:void(0)" onclick="ExpandResult.toggle('${escapeAttr(entityId)}')">Expand</a></div>`;
 
       return `
@@ -995,14 +1000,7 @@
     const _resultCache = {};
     function cacheResults(results) {
       for (const r of results) {
-        let id;
-        if (r.type === 'Wallet' || r.type === 'Contract') {
-          id = r.name + '-' + (r.chain || '');
-        } else if (r.objectType === 'campaign') {
-          id = r.address || r.name;   // contract address — matches the card id
-        } else {
-          id = r.domain || r.name;
-        }
+        const id = ExpandResult.entityIdFor(r);
         if (id) _resultCache[id] = r;
       }
     }

@@ -104,17 +104,17 @@
       <h1>Badges &amp; Trust Facts</h1>
       <p>
         Scan reports <strong>facts, not verdicts</strong>. Every search result carries the
-        verifiable facts behind its origin &mdash; who signed it, what binds that signature to a
-        domain and a chain, and how long we've observed it. The badges on this site are a
-        shorthand this page renders from those facts, for human convenience. AI agents don't get
-        the badge; they get the raw facts and apply their own policy.
+        verifiable facts behind its origin: who signed it, what binds that signature to a domain
+        and a chain, and how long the origin has been observed. The badges on this site are a
+        shorthand computed at this surface from those facts. Agents receive the facts rather than
+        the badge, and apply their own policy.
       </p>
 
       <h2 id="trust">Trust badges</h2>
       <p>
         Each indexed origin collects independent, checkable <a href="#signals">signals</a>. This
-        surface sums them into a score and shows a threshold label. The score is a convenience of
-        this GUI &mdash; it is deliberately absent from the agent-facing data.
+        surface sums them into a score and shows a threshold label. The score belongs to this
+        interface and is absent from the agent-facing data.
       </p>
       <div class="legend">
         <div class="legend-row">
@@ -127,7 +127,7 @@
         </div>
         <div class="legend-row">
           <span class="legend-sample"><span class="badge badge-claimed">Claimed</span></span>
-          <span class="legend-desc">Self-asserted (score &ge; 25): the domain publishes a signed declaration, but nothing beyond its own word binds the signature yet.</span>
+          <span class="legend-desc">Self-asserted (score &ge; 25): the domain publishes a signed declaration, but no independent binding confirms the signature.</span>
         </div>
         <div class="legend-row">
           <span class="legend-sample"><span class="badge badge-discovered">Discovered</span></span>
@@ -135,25 +135,25 @@
         </div>
         <div class="legend-row">
           <span class="legend-sample"><span class="badge badge-open">Open</span></span>
-          <span class="legend-desc">No proven signals. Not a judgment &mdash; simply nothing verified yet. Anyone can <a href="https://rootz.global/ai-discovery">publish and sign a manifest</a> to change this.</span>
+          <span class="legend-desc">No proven signals: nothing about the origin has been verified. Publishing a <a href="https://rootz.global/ai-discovery">signed manifest</a> establishes the first signals.</span>
         </div>
         <div class="legend-row">
           <span class="legend-sample"><span class="badge badge-signed">Signed</span></span>
-          <span class="legend-desc">Shown for results indexed before signal scoring: a signature is present but the full signal set hasn't been collected yet.</span>
+          <span class="legend-desc">Shown for results indexed before signal scoring: a signature is present, but the full signal set has not been collected.</span>
         </div>
       </div>
       <p>
-        The agent-facing equivalent is the <strong>origin rung</strong> &mdash; a continuity
-        ladder derived strictly from proven signals: <code>chain-bound</code> (contract +
+        The agent-facing equivalent is the <strong>origin rung</strong>, a continuity ladder
+        derived strictly from proven signals: <code>chain-bound</code> (contract with
         bidirectional domain binding) &rarr; <code>dns</code> &rarr; <code>claimed</code> &rarr;
         <code>open</code>. See <a href="/about">About</a> for the full contract.
       </p>
 
       <h2 id="signals">Signal dots</h2>
       <p>
-        <span class="signal-dot on"></span>green means the signal is verifiably present,
-        <span class="signal-dot off"></span>gray means it is not. Each signal is an independent
-        observation with a timestamp:
+        <span class="signal-dot on"></span>Green indicates the signal is verifiably present;
+        <span class="signal-dot off"></span>gray indicates it is not. Each signal is an
+        independent observation with a timestamp:
       </p>
       <div class="legend">
         <div class="legend-row">
@@ -162,11 +162,11 @@
         </div>
         <div class="legend-row">
           <span class="legend-sample"><code>selfSigned</code></span>
-          <span class="legend-desc">The manifest carries the author's own signature &mdash; an ownership assertion.</span>
+          <span class="legend-desc">The manifest carries the author's own signature: an ownership assertion.</span>
         </div>
         <div class="legend-row">
           <span class="legend-sample"><code>hashValid</code></span>
-          <span class="legend-desc">The content hash still matches the signature &mdash; unchanged since signing.</span>
+          <span class="legend-desc">The content hash still matches the signature: unchanged since signing.</span>
         </div>
         <div class="legend-row">
           <span class="legend-sample"><code>contractExists</code></span>
@@ -174,7 +174,7 @@
         </div>
         <div class="legend-row">
           <span class="legend-sample"><code>domainBinding</code></span>
-          <span class="legend-desc">The domain and the contract reference each other &mdash; the strongest binding.</span>
+          <span class="legend-desc">The domain and the contract reference each other, a bidirectional binding.</span>
         </div>
         <div class="legend-row">
           <span class="legend-sample"><code>dnsVerified</code></span>
@@ -187,7 +187,7 @@
       </div>
 
       <h2 id="sources">Source badges</h2>
-      <p>Where a result came from &mdash; the source is never dropped.</p>
+      <p>Where a result came from. The source is reported on every result.</p>
       <div class="legend">
         <div class="legend-row">
           <span class="legend-sample"><span class="badge-source badge-source-sw">Signed Web</span></span>
@@ -195,11 +195,11 @@
         </div>
         <div class="legend-row">
           <span class="legend-sample"><span class="badge-source badge-source-mcp">MCP</span></span>
-          <span class="legend-desc">A federated result from an MCP service registry &mdash; live tool services, not stored signed objects.</span>
+          <span class="legend-desc">A federated result from an MCP service registry: a live tool service rather than a stored signed object.</span>
         </div>
         <div class="legend-row">
           <span class="legend-sample"><span class="badge-source badge-source-skill">Skill</span></span>
-          <span class="legend-desc">A registered data source matched to your query by topic, returning its callable tool manifest.</span>
+          <span class="legend-desc">A registered data source matched to the query by topic, returning its callable tool manifest.</span>
         </div>
       </div>
 
@@ -207,11 +207,11 @@
       <div class="legend">
         <div class="legend-row">
           <span class="legend-sample"><span class="badge badge-open">vehicle</span></span>
-          <span class="legend-desc">An object's declared category &mdash; vehicle, official, property, and so on. Categories are public JSON-LD schemas; the projection for each is published at <code>/api/schema</code>.</span>
+          <span class="legend-desc">An object's declared category. Categories are public JSON-LD schemas; the projection for each is published at <code>/api/schema</code>.</span>
         </div>
         <div class="legend-row">
           <span class="legend-sample"><span class="badge badge-open">polygon</span></span>
-          <span class="legend-desc">The chain a wallet or contract lives on, alongside a <span class="badge badge-open">Contract</span> or <span class="badge badge-open">Wallet</span> label for live chain reads.</span>
+          <span class="legend-desc">The chain a wallet or contract resides on, alongside a <span class="badge badge-open">Contract</span> or <span class="badge badge-open">Wallet</span> label for live chain reads.</span>
         </div>
         <div class="legend-row">
           <span class="legend-sample"><span class="badge badge-live">Live</span> <span class="badge badge-offline">Offline</span></span>
@@ -219,7 +219,7 @@
         </div>
         <div class="legend-row">
           <span class="legend-sample"><span class="badge-tools">12 tools</span></span>
-          <span class="legend-desc">How many callable tools a service or skill exposes.</span>
+          <span class="legend-desc">The number of callable tools a service or skill exposes.</span>
         </div>
       </div>
 
