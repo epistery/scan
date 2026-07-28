@@ -21,15 +21,16 @@ function collapseHelp() {
 }
 
 window.addEventListener('DOMContentLoaded', async () => {
-  // Load fragments
+  // Load fragments. The placeholder is filled, not replaced — it carries the
+  // reserved geometry from common.css (#navigation, #footer), so the page
+  // doesn't re-lay-out around the arriving markup.
   const fragments = document.querySelectorAll('.fragment');
   for await (const fragment of fragments) {
     try {
       const path = fragment.getAttribute('data-path');
       const result = await fetch('/static/fragment/' + path);
-      const element = document.createElement('div');
-      element.innerHTML = await result.text();
-      fragment.replaceWith(element);
+      fragment.innerHTML = await result.text();
+      fragment.classList.remove('fragment');
     } catch(e) {
       console.error(e);
     }

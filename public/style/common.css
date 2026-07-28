@@ -100,20 +100,25 @@ body {
     flex: 1 1;
 }
 /* Fragment placeholders reserve the space their loaded content will take,
-   so the shell's geometry is settled before the fragments arrive. */
+   so the shell's geometry is settled before the fragments arrive. The
+   placeholders are filled in place (see common.js) and keep these rules
+   afterwards — the reserved box IS the final box, so nothing reflows.
+   Note the explicit flex-basis: `flex: 0 0` alone means basis 0, which
+   collapsed the sidebar column until the fragment landed and shoved the
+   centered search box 200px sideways. */
 #navigation {
     display: flex;
-    flex: 0 0;
-    width: 200px
+    flex: 0 0 200px;
+    width: 200px;
 }
 @media (max-width: 720px) {
     /* On mobile the nav becomes a fixed drawer and takes no column width —
        the placeholder must not reserve any either. */
-    #navigation { width: 0; }
+    #navigation { flex-basis: 0; width: 0; }
 }
 #footer {
-    flex: 0 0;
-    min-height: 60px;
+    flex: 0 0 auto;
+    min-height: 118px;
 }
 
 /* Content pages (about, developers) */
