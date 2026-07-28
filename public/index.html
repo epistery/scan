@@ -23,22 +23,22 @@
 
 
     /* --- Landing state: centered search --- */
-    /* The landing owns its geometry: min-height pins centering to the
-       viewport so late-arriving siblings (nav/footer fragments) and async
-       children (stats) can't re-center it. No transition — the mode switch
-       is a single deterministic reflow, not an animated one. */
+    /* The landing takes the space the footer leaves rather than claiming a
+       full viewport of its own — a 100vh landing plus a footer is taller than
+       the window, and the empty page opened already scrolled. Its siblings
+       reserve their size up front (see #navigation/#footer in common.css), so
+       growing into the remainder is stable: nothing arrives later to re-center
+       it. No transition — the mode switch is a single deterministic reflow. */
     .landing {
       display: flex;
-      flex: 1 1;
+      flex: 1 1 auto;
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      min-height: 100vh;
       padding: 2rem;
     }
 
     .landing.has-results {
-      min-height: auto;
       justify-content: flex-start;
       padding-top: 2rem;
     }
