@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="robots" content="noindex">
+  <title>The Mark — Epistery</title>
+  <link rel="stylesheet" href="/static/style/common.css">
+  <style>
+    html, body { max-width: 100%; overflow-x: hidden; }
+
+    body.logo-page {
+      display: flex;
+      flex-direction: column;
+      background: #16120f;
+      color: #ece5dc;
+      min-height: 100vh;
+      padding: var(--spacer2);
+      gap: var(--spacer);
+    }
+
+    .head { min-width: 0; }
+    .head h1 { font-size: 1.6rem; font-weight: 200; margin-bottom: var(--spacerthird); }
+    .head p {
+      font-size: 0.85rem;
+      color: #9b9089;
+      line-height: 1.6;
+      max-width: 70ch;
+      overflow-wrap: anywhere;
+    }
+    .head a { color: var(--rust-light); text-decoration: none; }
+    .head a:hover { text-decoration: underline; }
+
+    /* The print. Fills whatever's left of the window. */
+    #field {
+      flex: 1 1 0;
+      min-height: 0;
+      width: 100%;
+      display: block;
+      border-radius: 3px;
+      background: #16120f;
+      cursor: grab;
+      box-shadow: 0 0 0 1px #2e2724, 0 20px 50px rgba(0,0,0,0.5);
+    }
+    #field.dragging { cursor: grabbing; }
+    #field.busy { opacity: 0.3; cursor: progress; }
+
+    .hint {
+      font-size: 0.75rem;
+      color: #6a615b;
+      display: flex;
+      gap: var(--spacer);
+      flex-wrap: wrap;
+      align-items: center;
+      min-width: 0;
+    }
+    .hint button {
+      background: transparent;
+      border: 1px solid #2e2724;
+      border-radius: 3px;
+      color: #9b9089;
+      padding: var(--spacerquarter) var(--spacerhalf);
+      font-size: 0.72rem;
+      cursor: pointer;
+    }
+    .hint button:hover { border-color: var(--rust-deep); color: #ece5dc; }
+  </style>
+</head>
+<body class="logo-page">
+  <div class="head">
+    <h1>The mark is a field</h1>
+    <p>
+      58&times;58 tiles of tapered arcs, driven by Mozart —
+      treble in green, bass in rust — spiralling out from the center and detuned by
+      &phi;, &radic;2, &radic;3 so the pattern never quite repeats. The display logo is a
+      shifting window on the image. Identity icons map to a unique slice determined
+      by the user address. <a href="/">&larr; back to scan</a>
+    </p>
+  </div>
+
+  <canvas id="field" class="busy"></canvas>
+
+  <div class="hint">
+    <span>Wheel to zoom &middot; drag to move</span>
+    <span id="zoomLabel">—</span>
+    <button id="resetBtn">Fit</button>
+  </div>
+
+  <script type="module">
+    import { drawField, BASE_SIZE } from '/static/script/logo-field.mjs';
+
+    // Painted once at 3x so deep zoom stays sharp, then blitted every frame.
+    const OVERSAMPLE = 3;
+    const print = document.createElement('canvas');
+    print.width = print.height = BASE_SIZE * OVERSAMPLE;
+
+    const field = document.getElementById('field');
+    const ctx = field.getContext('2d');
+    const zoomLabel = document.getElementById('zoomLabel');
+
+    let scale = 1;          // display pixels per field unit
+    let origin = { x: 0, y: 0 };  // field coordinate at the canvas top-left
+    let fitScale = 1;
+
+    function paint() {
+      const dpr = window.devicePixelRatio || 1;
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.fillStyle = '#16120f';
+      ctx.fillRect(0, 0, field.width, field.height);
+      ctx.setTransform(scale * dpr, 0, 0, scale * dpr, -origin.x * scale * dpr, -origin.y * scale * dpr);
+      ctx.drawImage(print, 0, 0, BASE_SIZE, BASE_SIZE);
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      zoomLabel.textContent = `${(scale / fitScale).toFixed(1)}× of fit`;
+    }
+
+    // Keep the print in view — you can't lose it off an edge.
+    function clamp() {
+      const w = field.clientWidth / scale;
+      const h = field.clientHeight / scale;
+      const slack = 0.25;
+      origin.x = Math.max(-w * slack, Math.min(BASE_SIZE - w * (1 - slack), origin.x));
+      origin.y = Math.max(-h * slack, Math.min(BASE_SIZE - h * (1 - slack), origin.y));
+    }
+
+    function fit() {
+      fitScale = Math.min(field.clientWidth, field.clientHeight) / BASE_SIZE * 0.96;
+      scale = fitScale;
+      origin = {
+        x: (BASE_SIZE - field.clientWidth / scale) / 2,
+        y: (BASE_SIZE - field.clientHeight / scale) / 2
+      };
+      paint();
+    }
+
+    function resize() {
+      const dpr = window.devicePixelRatio || 1;
+      const wasFit = Math.abs(scale - fitScale) < 1e-6;
+      field.width = Math.round(field.clientWidth * dpr);
+      field.height = Math.round(field.clientHeight * dpr);
+      fitScale = Math.min(field.clientWidth, field.clientHeight) / BASE_SIZE * 0.96;
+      wasFit ? fit() : (clamp(), paint());
+    }
+
+    // Zoom toward the cursor: the field point under the pointer stays put.
+    field.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      const r = field.getBoundingClientRect();
+      const px = e.clientX - r.left, py = e.clientY - r.top;
+      const fx = origin.x + px / scale, fy = origin.y + py / scale;
+      const next = Math.max(fitScale, Math.min(fitScale * 40, scale * Math.pow(1.0015, -e.deltaY)));
+      scale = next;
+      origin = { x: fx - px / scale, y: fy - py / scale };
+      clamp();
+      paint();
+    }, { passive: false });
+
+    let drag = null;
+    field.addEventListener('pointerdown', (e) => {
+      drag = { x: e.clientX, y: e.clientY };
+      field.setPointerCapture(e.pointerId);
+      field.classList.add('dragging');
+    });
+    field.addEventListener('pointermove', (e) => {
+      if (!drag) return;
+      origin.x -= (e.clientX - drag.x) / scale;
+      origin.y -= (e.clientY - drag.y) / scale;
+      drag = { x: e.clientX, y: e.clientY };
+      clamp();
+      paint();
+    });
+    const endDrag = () => { drag = null; field.classList.remove('dragging'); };
+    field.addEventListener('pointerup', endDrag);
+    field.addEventListener('pointercancel', endDrag);
+
+    document.getElementById('resetBtn').addEventListener('click', fit);
+    window.addEventListener('resize', resize);
+
+    // ~3400 tiles of filled arcs — let the shell paint first.
+    requestAnimationFrame(() => setTimeout(() => {
+      drawField(print.getContext('2d'), OVERSAMPLE);
+      field.classList.remove('busy');
+      resize();
+    }, 0));
+  </script>
+</body>
+</html>

@@ -375,6 +375,11 @@ export default class EpisteryScan {
     router.get('/developers', (req, res) => {
       res.sendFile(path.join(__dirname, 'public/developers.html'));
     });
+    // Unlisted — the whole base field, and the tool that dices it into
+    // identities. Not in the nav on purpose.
+    router.get('/logo', (req, res) => {
+      res.sendFile(path.join(__dirname, 'public/logo.html'));
+    });
 
     console.log(`[epistery-scan] Agent attached — search the signed web`);
   }
