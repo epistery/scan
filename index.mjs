@@ -1,4 +1,5 @@
 import express from 'express';
+import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import mongodb from 'mongodb';
@@ -22,6 +23,14 @@ import { signResponse } from './lib/sign.mjs';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const DB_NAME = 'epistery-scan';
+
+// The version /health reports is the one package.json declares — the only place
+// it is maintained. A literal here would keep answering confidently after the
+// package bumped, which makes the endpoint whose job is to say what's running
+// the thing that misleads you.
+const { version: VERSION } = JSON.parse(
+  fs.readFileSync(path.join(__dirname, 'package.json'), 'utf8')
+);
 
 /**
  * Epistery Scan — Search the Signed Web
@@ -266,7 +275,7 @@ export default class EpisteryScan {
         status: 'ok',
         service: 'epistery-scan',
         description: 'Search the signed web',
-        version: '2.0.0',
+        version: VERSION,
         database: this.db ? 'connected' : 'disconnected',
         ingestion: {
           running: this.ingestion?.isRunning || false,
