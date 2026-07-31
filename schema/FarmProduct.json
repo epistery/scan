@@ -1,0 +1,33 @@
+{
+  "$id": "https://epistery.com/schema/FarmProduct",
+  "schema": "https://epistery.com/schema/FarmProduct",
+  "label": "FarmProduct",
+  "version": 1,
+  "description": "Something a farm sells direct — the item, its price, and the storefront it was found on (harvested from farm websites and commerce platforms by farm.rootz.global). Epistery-published vocabulary rather than schema.org/Product because the record's value is the link back to the farm that grows it; price is a live observation and the origin is always fresher than any index.",
+  "search": {
+    "title": ["name"],
+    "summary": [
+      { "path": "price", "prefix": "$" },
+      "vendor",
+      "productType",
+      { "path": "tags", "all": true, "join": "/" }
+    ],
+    "keywords": [
+      "name", "productType", "vendor", "platform", "tags", "description"
+    ]
+  },
+  "display": {
+    "facets": [
+      { "label": "Price", "path": "price", "prefix": "$" },
+      { "label": "Was", "path": "compareAtPrice", "prefix": "$" },
+      { "label": "Vendor", "path": "vendor" },
+      { "label": "Type", "path": "productType" },
+      { "label": "Tags", "path": "tags", "all": true, "join": ", " },
+      { "label": "Platform", "path": "platform" }
+    ]
+  },
+  "trust": {
+    "note": "Reserved — commerce proof points (storefront ownership bound to the farm record, price observation time) as the market defines them.",
+    "factors": []
+  }
+}

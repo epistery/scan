@@ -1,0 +1,37 @@
+{
+  "$id": "https://epistery.com/schema/OrganicCertification",
+  "schema": "https://epistery.com/schema/OrganicCertification",
+  "label": "OrganicCertification",
+  "version": 1,
+  "description": "An organic certification held by a farm operation — certifier, certificate number, and current status (USDA Organic INTEGRITY Database as served by farm.rootz.global). Epistery-published vocabulary; a certification is a standing claim about an operation, not a thing schema.org types. Status changes, so the certifier and number are the identity, not the state.",
+  "search": {
+    "title": ["name"],
+    "summary": [
+      "status",
+      "certifier",
+      { "path": ["address.addressLocality", "address.addressRegion"], "join": ", " },
+      "source"
+    ],
+    "keywords": [
+      "name", "operationName", "legalName", "certifier", "certNumber", "status",
+      "county", "address.addressLocality", "address.addressRegion"
+    ]
+  },
+  "display": {
+    "facets": [
+      { "label": "Operation", "path": "operationName" },
+      { "label": "Status", "path": "status" },
+      { "label": "Certifier", "path": "certifier" },
+      { "label": "Certificate", "path": "certNumber" },
+      { "label": "City", "path": "address.addressLocality" },
+      { "label": "State", "path": "address.addressRegion" },
+      { "label": "County", "path": "county" },
+      { "label": "Website", "path": "website" },
+      { "label": "Source", "path": "source" }
+    ]
+  },
+  "trust": {
+    "note": "Reserved — certification proof points (accredited certifier identity, certificate validity window, revocation signal) as the market defines them. A certification is the strongest trust factor in this corpus and should be first to carry them.",
+    "factors": []
+  }
+}

@@ -1,0 +1,38 @@
+{
+  "$id": "https://epistery.com/schema/AgParcel",
+  "schema": "https://epistery.com/schema/AgParcel",
+  "label": "AgParcel",
+  "version": 1,
+  "description": "A parcel of agricultural land — the county roll's own record of who owns it, how it is classified for use, and what it is assessed at (Florida DOR county parcel rolls as served by farm.rootz.global). Epistery-published vocabulary; schema.org types places and real-estate listings, not cadastral parcels. The parcel number is the identity; ownership and value are observations against it.",
+  "search": {
+    "title": ["name"],
+    "summary": [
+      "useDescription",
+      { "path": "county", "suffix": " County" },
+      { "path": "justValue", "prefix": "$" },
+      "owner"
+    ],
+    "keywords": [
+      "name", "parcelNo", "folio", "owner", "county", "useDescription", "useCode",
+      "address.streetAddress", "address.addressLocality"
+    ]
+  },
+  "display": {
+    "facets": [
+      { "label": "Parcel", "path": ["parcelNo", "folio"] },
+      { "label": "Owner", "path": "owner" },
+      { "label": "Address", "path": "address.streetAddress" },
+      { "label": "City", "path": "address.addressLocality" },
+      { "label": "County", "path": "county" },
+      { "label": "State", "path": "state" },
+      { "label": "Use", "path": "useDescription" },
+      { "label": "Use code", "path": "useCode" },
+      { "label": "Just value", "path": "justValue", "prefix": "$" },
+      { "label": "Source", "path": "source" }
+    ]
+  },
+  "trust": {
+    "note": "Reserved — cadastral proof points (roll year, county of record, assessment date) as the market defines them. A parcel record is authoritative only as of its roll; the vintage belongs here.",
+    "factors": []
+  }
+}

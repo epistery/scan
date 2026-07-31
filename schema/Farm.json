@@ -1,0 +1,38 @@
+{
+  "$id": "https://epistery.com/schema/Farm",
+  "schema": "https://epistery.com/schema/Farm",
+  "label": "Farm",
+  "version": 1,
+  "description": "A working farm — the operation, its owner, where it is, and what it grows (as served by farm.rootz.global from state registries and web harvests). The source signs the record; each object links back to its living origin, where the operation's own page is always fresher than any index.",
+  "search": {
+    "title": ["name"],
+    "summary": [
+      "farmType",
+      { "path": ["address.addressLocality", "address.addressRegion"], "join": ", " },
+      { "path": "products", "all": true, "join": "/" },
+      { "path": "acreage", "suffix": " acres" }
+    ],
+    "keywords": [
+      "name", "legalName", "owner", "farmType", "products", "county",
+      "address.addressLocality", "address.addressRegion"
+    ]
+  },
+  "display": {
+    "facets": [
+      { "label": "Type", "path": "farmType" },
+      { "label": "Owner", "path": "owner" },
+      { "label": "Also known as", "path": "legalName" },
+      { "label": "City", "path": "address.addressLocality" },
+      { "label": "State", "path": "address.addressRegion" },
+      { "label": "County", "path": "county" },
+      { "label": "Products", "path": "products", "all": true, "join": ", " },
+      { "label": "Acreage", "path": "acreage", "suffix": " acres" },
+      { "label": "Established", "path": "yearEstablished", "format": "plain" },
+      { "label": "Website", "path": "website" }
+    ]
+  },
+  "trust": {
+    "note": "Reserved — the operation's proof points (registry enrollment, certification linkage, signer standing) declared here as the market defines them.",
+    "factors": []
+  }
+}
