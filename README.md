@@ -4,6 +4,8 @@ Search the signed web. Cross-chain blockchain explorer, AI discovery indexer, an
 
 **Live at:** https://epistery.com
 
+**What Scan is for** is stated on the [About page](https://epistery.com/about.html) — the goal, in the site's own words, readable by human and bot alike. This README covers the *code*; the deep technical and operational detail lives on the [EpisteryScan wiki page](https://geist.social/wiki/EpisteryScan). Each belongs in one place only.
+
 Epistery Scan indexes four kinds of entities through a unified architecture:
 
 - **Blockchain contracts** on Ethereum and Polygon (Agents, Identity Contracts, Campaign Wallets)
@@ -438,6 +440,8 @@ The dev/prod toggle is driven entirely by whether `[profile] email` is set in co
 
 ## Reference
 
+- [About](https://epistery.com/about.html) -- what Scan is for, and the principles it holds to
+- [EpisteryScan](https://geist.social/wiki/EpisteryScan) -- deep technical and operational detail
 - [AI Discovery Standard](https://rootz.global/ai/standard.md) -- the `/.well-known/ai` specification
 - [Epistery Wiki](https://wiki.rootz.global) -- ecosystem documentation
 - `/rootz/epistery` -- core epistery module
