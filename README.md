@@ -1,4 +1,4 @@
-# Epistery Scan
+claud# Epistery Scan
 
 Search the signed web. Cross-chain blockchain explorer, AI discovery indexer, and multisite host for the Epistery ecosystem.
 

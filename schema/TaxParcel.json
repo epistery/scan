@@ -1,0 +1,42 @@
+{
+  "$id": "https://epistery.com/schema/TaxParcel",
+  "schema": "https://epistery.com/schema/TaxParcel",
+  "label": "TaxParcel",
+  "version": 1,
+  "description": "A parcel of real property as a taxing authority's assessment roll records it — the lot's identity, who is on the roll for it, how it is classified, and what it was assessed and taxed at for a stated tax year. Epistery-published vocabulary; schema.org types places and real-estate listings, not cadastral parcels or roll records. The parcel identifier is the identity; ownership, classification and value are observations against it for one tax year.",
+  "search": {
+    "title": ["name"],
+    "summary": [
+      { "path": "marketValue", "prefix": "$" },
+      "owner",
+      { "path": "taxYear", "prefix": "FY" },
+      "source"
+    ],
+    "keywords": [
+      "name", "parcelId", "owner", "borough", "block", "lot",
+      "address.streetAddress", "address.addressLocality", "address.postalCode",
+      "buildingClass", "taxClass"
+    ]
+  },
+  "display": {
+    "facets": [
+      { "label": "Parcel", "path": "parcelId" },
+      { "label": "Owner", "path": "owner" },
+      { "label": "Address", "path": "address.streetAddress" },
+      { "label": "Borough", "path": "borough" },
+      { "label": "Block / Lot", "path": ["block", "lot"], "join": " / " },
+      { "label": "Tax year", "path": "taxYear", "format": "plain" },
+      { "label": "Roll stage", "path": "rollStage" },
+      { "label": "Tax class", "path": "taxClass" },
+      { "label": "Market value", "path": "marketValue", "prefix": "$" },
+      { "label": "Assessed value", "path": "assessedValue", "prefix": "$" },
+      { "label": "Taxable value", "path": "taxableValue", "prefix": "$" },
+      { "label": "Built", "path": "yearBuilt", "format": "plain" },
+      { "label": "Source", "path": "source" }
+    ]
+  },
+  "trust": {
+    "note": "Reserved — cadastral proof points (roll year, roll stage, assessing authority, extract date) as the market defines them. A roll record is authoritative only as of its stage and extract date; the vintage belongs here.",
+    "factors": []
+  }
+}
