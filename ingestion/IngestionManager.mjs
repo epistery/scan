@@ -168,9 +168,10 @@ export default class IngestionManager {
 
     const currentBlock = await connector.getCurrentBlock();
 
+    let records = null;
     if (currentBlock > startBlock) {
       // Process new events
-      await interpreter.processEvents(monitor.address, monitor.chain, startBlock + 1, currentBlock);
+      records = await interpreter.processEvents(monitor.address, monitor.chain, startBlock + 1, currentBlock);
 
       // Update last processed block
       await this.database.saveEntity({
@@ -182,8 +183,22 @@ export default class IngestionManager {
       });
     }
 
-    // Re-sync entity state
-    await interpreter.sync(monitor.address, monitor.chain);
+    // Re-sync entity state — but only when it can have changed. On-chain state
+    // changes always emit an event, so a chain scan that returned zero events
+    // means nothing to re-read. sync() is 5–20 view calls per contract; on a
+    // busy chain the head advances every poll, so gating on EVENTS (not on new
+    // blocks) is what actually removes the idle RPC baseline.
+    //
+    // We only skip when processEvents actually ran as a chain scan (returned an
+    // array). Interpreters whose processEvents isn't a chain scan (HTTP-based,
+    // returns undefined) are never gated, and a never-synced entity always gets
+    // one initial sync to populate its state.
+    const scannedChain = Array.isArray(records);
+    const eventCount = scannedChain ? records.length : 0;
+    const needsInitialSync = !entity || entity.lastProcessedBlock == null;
+    if (!scannedChain || eventCount > 0 || needsInitialSync) {
+      await interpreter.sync(monitor.address, monitor.chain);
+    }
   }
 
   /**
