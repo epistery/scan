@@ -34,10 +34,12 @@ index.mjs                         Express server, TLS, Harness, route mounting
   |     EntityTypeRegistry.mjs    Maps type names to interpreters with source metadata
   |     ChainConnector.mjs        Normalized blockchain RPC access (ethers v6)
   |     DomainDiscovery.mjs       Crawls domains for /.well-known/ai manifests
+  |     AppDirectory.mjs          Identity names from the relay's directory rows; puts
+  |     |                         each contract under chain monitoring
   |     |
   |     +-- interpreters/
   |           AgentInterpreter.mjs              Agent.sol -- domain hosts, ACLs, attributes
-  |           IdentityContractInterpreter.mjs   IdentityContract.sol -- multi-sig rivets
+  |           IdentityContractInterpreter.mjs   IdentityContract.sol -- rivets, sections, sessions
   |           CampaignWalletInterpreter.mjs     CampaignWallet.sol -- ad campaigns, payouts
   |           AIDiscoveryInterpreter.mjs        Web manifests via DomainDiscovery
   |           DataSourceInterpreter.mjs         Configured data source skills
@@ -74,7 +76,7 @@ Registered types:
 | Type | Source | Interpreter | Description |
 |------|--------|-------------|-------------|
 | Agent | blockchain | AgentInterpreter | Agent.sol -- domain hosts with ACLs and key-value attributes |
-| IdentityContract | blockchain | IdentityContractInterpreter | IdentityContract.sol -- multi-sig identity binding via rivets |
+| IdentityContract | blockchain | IdentityContractInterpreter | IdentityContract.sol -- the devices (rivets) that are an identity, and the sections that are its sessions |
 | CampaignWallet | blockchain | CampaignWalletInterpreter | CampaignWallet.sol -- ad campaign budgets and publisher payouts |
 | AIDiscovery | web | AIDiscoveryInterpreter | `/.well-known/ai` manifests fetched via DomainDiscovery |
 | DataSource | config | DataSourceInterpreter | Registered data source skills with callable tools |
@@ -290,7 +292,7 @@ Epistery Scan understands these event types:
 
 **Agent events:** ACLModified, AttributeSet, AttributeDeleted, OwnershipTransferred, ApprovalRequested, ApprovalHandled
 
-**Identity events:** RivetAdded, RivetRemoved, ThresholdChanged
+**Identity events:** IdentityCreated, RivetAdded, RivetRemoved, HostChanged, PublicKeyRegistered, MemberSet, MemberRemoved, PublicSet, InviteRedeemed (the EpisteryAccess generation; the older chat/legacy contracts scan their own signatures). Wallet movements by the contract are not scanned — see the interpreter.
 
 **Campaign events (v2):** BatchSubmitted, Withdrawn, PromotionAdded, PromotionUpdated, CampaignPaused, CampaignUnpaused, BudgetAdded
 

@@ -270,6 +270,34 @@ body {
     margin-bottom: 0.35rem;
 }
 
+/* --- Identity: the address's own mark, and the head it sits in --- */
+.identicon {
+    display: block;
+    border-radius: 4px;
+    background: #f0f4f8;
+}
+
+.identity-head {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    min-width: 0;
+}
+
+.identity-mark {
+    display: block;
+    flex: 0 0 auto;
+    border-radius: 8px;
+    background: #f0f4f8;
+}
+
+.identity-name {
+    font-size: 1.15rem;
+    font-weight: 600;
+    color: #2c3e50;
+    overflow-wrap: anywhere;
+}
+
 .signal-table {
     width: 100%;
     border-collapse: collapse;

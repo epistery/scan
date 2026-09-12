@@ -119,10 +119,9 @@ export default class EpisteryScan {
     const ingestionConfig = {
       chains: {},
       pollInterval: episteryConfig.data.pollInterval || 300000,
-      // epistery-app directory: where to reach the app for public-session
-      // enrichment ([app] url in config.ini). Unset → index names/addresses
-      // from the identities collection only.
-      appBaseUrl: this.config.appBaseUrl || episteryConfig.data.app?.url || '',
+      // How often the identity directory re-reads the `identities` collection.
+      // There is no app URL to configure: each identity is named under its own
+      // host, and the directory row carries it (see ingestion/AppDirectory.mjs).
       appPollInterval: episteryConfig.data.app?.pollInterval || 3600000,
       // Pass the [sources]/[datasources] sections from the root config we
       // already loaded (awaited) above. DomainDiscovery's constructor can't

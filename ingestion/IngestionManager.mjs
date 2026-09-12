@@ -57,10 +57,12 @@ export default class IngestionManager {
     const dataSource = new DataSourceInterpreter(this.database, this.domainDiscovery);
     this.registry.register('DataSource', dataSource, { source: 'config' });
 
-    // epistery-app directory — indexes named contracts + public sessions from
-    // scan's `identities` collection (and, if configured, the app's HTTP API).
+    // Identity directory — indexes the named contracts in scan's `identities`
+    // collection and puts each under chain monitoring, so the IdentityContract
+    // interpreter reads the rest. Only chains we have a connector for.
     this.appDirectory = new AppDirectory(this.database, {
-      appBaseUrl: this.config.appBaseUrl,
+      chains: Object.keys(this.connectors),
+      currentBlock: (chain) => this.connectors[chain].getCurrentBlock(),
       pollInterval: this.config.appPollInterval || 3600000
     });
 
@@ -162,8 +164,14 @@ export default class IngestionManager {
     let startBlock = entity?.lastProcessedBlock;
     if (!startBlock) {
       const currentBlock = await connector.getCurrentBlock();
-      // If we don't know deployment block, only scan recent history (last 100k blocks or contract deployment)
-      startBlock = entity?.deploymentBlock || Math.max(0, currentBlock - 100000);
+      // `metadata.fromBlock` is the event horizon a registrar declared when it
+      // added the monitor — the point from which this contract's history is
+      // ours to record. Bulk registrars set it to the block they registered at
+      // (see AppDirectory), so adding many contracts at once does not mean many
+      // simultaneous multi-day backfills.
+      startBlock = entity?.deploymentBlock
+        || monitor.metadata?.fromBlock
+        || Math.max(0, currentBlock - 100000);
     }
 
     const currentBlock = await connector.getCurrentBlock();

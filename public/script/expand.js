@@ -70,6 +70,25 @@ const ExpandResult = (function () {
     return num.toFixed(4).replace(/\.?0+$/, '');
   }
 
+  // ---- Identicon ----
+
+  // The mark an epistery address wears everywhere in the platform, from
+  // @epistery/art (served at /art). It is a pure function of the address, so we
+  // compute it here rather than store it — derived art is not a fact scan needs
+  // to keep, and the reader can recompute it from the address on the card.
+  // Until the module resolves, identicon() returns '' and cards render without
+  // it; nothing waits and nothing guesses.
+  let _identicon = null;
+  import('/art/identicon.mjs')
+    .then(m => { _identicon = m.identiconDataUrl; })
+    .catch(e => console.warn('[expand] identicon unavailable:', e.message));
+
+  function identicon(address, size, className) {
+    if (!_identicon || !address) return '';
+    return `<img class="${className || 'identicon'}" width="${size}" height="${size}"`
+      + ` alt="" src="${_identicon(address, size)}">`;
+  }
+
   // ---- Entity identity ----
 
   // Single source of truth for a result's expand/cache id. Card templates,
@@ -87,6 +106,14 @@ const ExpandResult = (function () {
 
   function getTabsForType(r) {
     const type = r.type || 'AIDiscovery';
+    if (r.objectType === 'identity') {
+      return [
+        { id: 'overview', label: 'Identity' },
+        { id: 'sessions', label: 'Sessions' },
+        { id: 'activity', label: 'Activity' },
+        { id: 'manifest', label: 'Raw' }
+      ];
+    }
     if (type === 'CampaignWallet' || r.objectType === 'campaign') {
       return [
         { id: 'overview', label: 'Campaign' },
@@ -193,6 +220,10 @@ const ExpandResult = (function () {
       case 'trust':
         body.innerHTML = renderTrustTab(r);
         break;
+      case 'sessions':
+        body.innerHTML = '<div style="text-align:center;padding:1rem;color:#999;">Asking the identity…</div>';
+        renderSessionsTab(r).then(html => { body.innerHTML = html; });
+        break;
       case 'tools':
         body.innerHTML = renderToolsTab(r);
         break;
@@ -296,7 +327,204 @@ const ExpandResult = (function () {
     return html;
   }
 
+  /**
+   * Identity synopsis — the contract read as what it is: the devices that can
+   * act as this identity, the name a host resolves to it, and the way it
+   * governs itself. Every figure comes from the digest the interpreter
+   * projected (r.jsonld), and every one of them is re-readable on chain.
+   */
+  function renderIdentityOverview(r) {
+    const j = r.jsonld || {};
+    const mono = 'font-family:monospace;font-size:0.82rem;overflow-wrap:anywhere;';
+    let html = '';
+
+    // Who
+    html += '<div class="expand-section">';
+    html += '<div class="identity-head">';
+    html += identicon(j.address || r.address, 64, 'identity-mark');
+    html += '<div style="min-width:0;">';
+    html += `<div class="identity-name">${escapeHtml(j.name || 'Unnamed identity')}</div>`;
+    html += `<div style="${mono}color:#777;">${escapeHtml(j.address || r.address || '')}</div>`;
+    const links = [];
+    if (j.profileUrl) links.push(`<a href="${escapeAttr(j.profileUrl)}" target="_blank" rel="noopener" style="color:#3498db;">${escapeHtml(j.profileUrl.replace(/^https?:\/\//, ''))}</a>`);
+    if (j.url) links.push(`<a href="${escapeAttr(j.url)}" target="_blank" rel="noopener" style="color:#3498db;">view on explorer</a>`);
+    if (links.length) html += `<div style="font-size:0.82rem;margin-top:0.25rem;">${links.join(' &middot; ')}</div>`;
+    html += '</div></div>';
+    html += '</div>';
+
+    // The devices. This is the thing an IdentityContract IS — not a wallet with
+    // one key, but a set of interchangeable ones, any of which can act.
+    const devices = j.rivets?.devices || [];
+    if (devices.length) {
+      html += '<div class="expand-section">';
+      html += `<div class="expand-section-title">${devices.length} Device${devices.length === 1 ? '' : 's'} &mdash; any one can act as this identity</div>`;
+      html += '<table class="token-list"><tbody>';
+      for (const d of devices) {
+        const tags = [];
+        if (j.creator && d.address === j.creator) tags.push('created it');
+        if (j.host && d.address === j.host) tags.push('recovery');
+        if (d.key) tags.push('publishes a key');
+        html += '<tr>';
+        html += `<td style="width:32px;">${identicon(d.address, 24, 'identicon')}</td>`;
+        html += `<td>${escapeHtml(d.name || 'unnamed')}<div style="${mono}color:#999;">${escapeHtml(d.address)}</div></td>`;
+        html += `<td style="color:#999;font-size:0.8rem;white-space:nowrap;">${d.added ? new Date(d.added).toLocaleDateString() : ''}</td>`;
+        html += `<td style="color:#999;font-size:0.8rem;">${escapeHtml(tags.join(' · '))}</td>`;
+        html += '</tr>';
+      }
+      html += '</tbody></table>';
+      html += '</div>';
+    }
+
+    // How it holds together
+    const rows = [];
+    if (j.namespace) rows.push(['Named at', j.namespace]);
+    if (j.model) rows.push(['Contract', j.model === 'access' ? 'rivets + sections (current)' : j.model]);
+    if (j.version) rows.push(['Version', j.version]);
+    if (j.removeRivetThreshold != null) rows.push(['To remove a device', `${j.removeRivetThreshold} of ${j.rivets?.count ?? '?'} must agree`]);
+    if (j.sessionCount != null) rows.push(['Sessions', `${j.openSessionCount ?? 0} open of ${j.sessionCount}`]);
+    if (j.messageCount) rows.push(['Messages on chain', j.messageCount]);
+    if (j.chain) rows.push(['Chain', j.chain]);
+    if (rows.length) {
+      html += '<div class="expand-section">';
+      html += '<div class="expand-section-title">Contract</div>';
+      html += '<table class="token-list"><tbody>';
+      for (const [label, value] of rows) {
+        html += `<tr><td style="color:#999;">${escapeHtml(label)}</td><td>${escapeHtml(String(value))}</td></tr>`;
+      }
+      html += '</tbody></table>';
+      html += '</div>';
+    }
+
+    return html;
+  }
+
+  // What a session's on-chain default role means for whoever is reading.
+  const OPEN_TO = {
+    read: 'open &mdash; anyone can read',
+    write: 'open &mdash; anyone can post',
+    admin: 'open &mdash; anyone can manage',
+    owner: 'open &mdash; anyone can manage'
+  };
+
+  function sessionUrl(j, s) {
+    const host = j.namespace;
+    if (!host) return null;
+    if (j.name && s.name) return `https://${host}/@${j.name}/${s.name}`;
+    return `https://${host}/#/s/${s.owner || j.address}/${s.id}`;
+  }
+
+  function sessionMcp(j, s) {
+    return (j.namespace && s.kind) ? `https://${j.namespace}/p/${s.kind}/${j.address}/${s.id}/mcp` : null;
+  }
+
+  /**
+   * Sessions — asked of the identity itself, not answered from the index.
+   *
+   * The indexed list is what the identity offers the world. The live read goes
+   * to the identity's own host carrying whatever identity the reader already
+   * has there, so a reader who holds a role on a private session sees that one
+   * too. Scan stands in no part of it: the fetch, the page and the MCP endpoint
+   * are all the identity's own.
+   */
+  async function renderSessionsTab(r) {
+    const j = r.jsonld || {};
+    let sessions = j.sessions || [];
+    let live = false;
+    let note = '';
+
+    if (j.home) {
+      try {
+        const res = await fetch(j.home, { headers: { Accept: 'application/json' } });
+        if (res.ok) {
+          const home = await res.json();
+          const declared = home.sessions || home.publicSessions || [];
+          // The host names the session; where scan already read the section on
+          // chain, the chain's access facts win — its ACL is the authority on
+          // who may do what, and anyone can re-read it.
+          const onChain = new Map((j.sessions || []).map(s => [String(s.id).toLowerCase(), s]));
+          sessions = declared.map(s => {
+            const c = onChain.get(String(s.id).toLowerCase());
+            return {
+              id: s.id,
+              kind: s.kind || null,
+              name: s.name || null,
+              title: s.title || null,
+              description: s.description || null,
+              defaultRole: c ? c.defaultRole : (s.defaultRole || null),
+              members: c ? c.members : (s.memberCount ?? null),
+              owner: s.owner || j.address,
+              url: sessionUrl(j, s),
+              mcp: sessionMcp(j, s)
+            };
+          });
+          live = true;
+        } else {
+          note = `${escapeHtml(j.namespace || 'the host')} answered ${res.status} — showing what scan indexed.`;
+        }
+      } catch (e) {
+        note = `${escapeHtml(j.namespace || 'the host')} could not be reached from this page — showing what scan indexed.`;
+      }
+    }
+
+    let html = '<div class="expand-section">';
+    html += `<div class="expand-section-title">${live ? 'Sessions available to you' : 'Sessions this identity offers'}</div>`;
+    if (live) {
+      html += `<div style="font-size:0.8rem;color:#999;margin-bottom:0.5rem;">Read live from ${escapeHtml(j.namespace)} as you. A session you hold a private role on appears here and nowhere in the index.</div>`;
+    }
+    if (note) html += `<div style="font-size:0.8rem;color:#c0392b;margin-bottom:0.5rem;">${note}</div>`;
+
+    // A section nobody described to this reader is a private session: the
+    // chain proves it exists and how many collaborators it names, and nothing
+    // else about it is ours to show. Counted, not listed one blank row at a
+    // time — and a private one the live read DID return (because the reader
+    // holds a role on it) is listed above instead of counted here.
+    const listed = sessions.filter(s => !s.undeclared);
+    const shown = new Set(listed.map(s => String(s.id).toLowerCase()));
+    const undeclared = (j.sessions || [])
+      .filter(s => s.undeclared && !shown.has(String(s.id).toLowerCase()));
+
+    if (!listed.length && !undeclared.length) {
+      html += '<div style="color:#999;">None.</div></div>';
+      return html;
+    }
+
+    for (const s of listed) {
+      const openTo = OPEN_TO[s.defaultRole] || 'private &mdash; you hold a role on it';
+      const label = s.title || s.name || '(untitled)';
+      html += '<div style="margin-bottom:0.7rem;">';
+      html += '<div>';
+      html += s.url
+        ? `<a href="${escapeAttr(s.url)}" target="_blank" rel="noopener" style="color:#3498db;font-weight:600;">${escapeHtml(label)}</a>`
+        : `<strong>${escapeHtml(label)}</strong>`;
+      if (s.kind) html += ` <span class="concept-tag">${escapeHtml(s.kind)}</span>`;
+      html += '</div>';
+      if (s.description) html += `<div style="font-size:0.85rem;color:#666;">${escapeHtml(s.description)}</div>`;
+      const meta = [openTo];
+      if (s.members != null) meta.push(`${s.members} named member${s.members === 1 ? '' : 's'}`);
+      if (s.onChain === false) meta.push('not on chain');
+      html += `<div style="font-size:0.78rem;color:#999;">${meta.join(' &middot; ')}</div>`;
+      if (s.mcp) {
+        html += `<div style="font-size:0.78rem;overflow-wrap:anywhere;"><span style="color:#999;">MCP</span> `
+          + `<span style="font-family:monospace;color:#00695c;">${escapeHtml(s.mcp)}</span> `
+          + `<span style="color:#aaa;">— with a key this identity grants you</span></div>`;
+      }
+      html += '</div>';
+    }
+
+    if (undeclared.length) {
+      const members = undeclared.reduce((n, s) => n + (s.members || 0), 0);
+      html += `<div style="font-size:0.8rem;color:#999;">${undeclared.length} further section`
+        + `${undeclared.length === 1 ? '' : 's'} on the contract, private to `
+        + `${members} named member${members === 1 ? '' : 's'}. The chain proves they exist; `
+        + `what is in them is the identity's to share.</div>`;
+    }
+
+    html += '</div>';
+    return html;
+  }
+
   function renderOverviewTab(r) {
+    if (r.objectType === 'identity' && (r.jsonld || r.card)) return renderIdentityOverview(r);
     if (r.objectType === 'campaign' && (r.jsonld || r.card)) return renderCampaignOverview(r);
     let html = '';
 
@@ -756,6 +984,7 @@ const ExpandResult = (function () {
     closeExpand,
     switchTab,
     getTrustBadge,
+    identicon,
     renderSignalDots,
     renderCapabilities,
     formatBalance,

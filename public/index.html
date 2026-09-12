@@ -764,9 +764,15 @@
         ? `<a class="result-domain" href="https://${escapeAttr(r.domain)}" target="_blank" rel="noopener">${escapeHtml(sourceName)}</a>`
         : (sourceName ? `<span class="result-domain">${escapeHtml(sourceName)}</span>` : '');
 
-      const thumb = r.image
-        ? `<div class="result-thumb"><img src="${escapeAttr(r.image)}" alt="" loading="lazy" onerror="this.style.visibility='hidden'"></div>`
-        : '';
+      // An identity's face is its identicon — the same mark the console and the
+      // app draw for it, computed from the address rather than stored.
+      const isIdentity = r.objectType === 'identity';
+      const mark = isIdentity ? ExpandResult.identicon(r.address, 96, 'identicon') : '';
+      const thumb = mark
+        ? `<div class="result-thumb">${mark}</div>`
+        : (r.image
+          ? `<div class="result-thumb"><img src="${escapeAttr(r.image)}" alt="" loading="lazy" onerror="this.style.visibility='hidden'"></div>`
+          : '');
 
       const facets = (r.card?.facets?.length)
         ? `<div class="result-facets">${r.card.facets.slice(0, 8).map(f =>
@@ -790,7 +796,11 @@
       const previewId = 'adprev-' + String(entityId).replace(/[^a-zA-Z0-9_-]/g, '');
       const actions = [];
       const isCampaign = r.objectType === 'campaign';
-      if (isCampaign) actions.push(`<a href="javascript:void(0)" onclick="ExpandResult.toggle('${escapeAttr(entityId)}')">Expand</a>`);
+      if (isCampaign || isIdentity) actions.push(`<a href="javascript:void(0)" onclick="ExpandResult.toggle('${escapeAttr(entityId)}')">Expand</a>`);
+      // An identity's page belongs to the identity, on the host that names it.
+      if (isIdentity && r.jsonld?.profileUrl) {
+        actions.push(`<a href="${escapeAttr(r.jsonld.profileUrl)}" target="_blank" rel="noopener">${escapeHtml(r.jsonld.profileUrl.replace(/^https?:\/\//, ''))}</a>`);
+      }
       if (r.ad?.render) actions.push(`<a href="javascript:void(0)" onclick="toggleAdPreview('${escapeAttr(previewId)}','${escapeAttr(r.ad.render)}')">Preview live ad</a>`);
       if (r.ad?.status) actions.push(`<a href="${escapeAttr(r.ad.status)}" target="_blank" rel="noopener">Status</a>`);
       if (r.url) actions.push(`<a href="${escapeAttr(r.url)}" target="_blank" rel="noopener">${isChainBacked ? 'View on chain' : 'View on source'}</a>`);

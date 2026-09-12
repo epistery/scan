@@ -1,27 +1,30 @@
 /**
  * AppDirectory
  *
- * Surfaces epistery-app identities in scan search.
+ * The directory half of an epistery identity: its NAME and the host that
+ * resolves it.
  *
- * The chat relay already writes every minted contract's name into scan's own
- * `identities` collection:
- *   { address, name, nameLower, domain, chain, owner, chatPublicKey, mintedAt, ... }
+ * The relay writes one row per minted contract into scan's own `identities`
+ * collection:
+ *   { address, name, nameLower, domain, chain, owner, chatPublicKey, mintedAt }
  *
- * This module promotes those rows into the searchable `entities` collection
- * (under `metadata.app`) and, when an app base URL is configured, enriches
- * each with the contract's PUBLIC sessions (message-board / wiki / files)
- * fetched from the app's open `GET /api/contracts/:contract/home` endpoint.
+ * `domain` is the namespace the name was claimed in — the host that serves
+ * `/@<name>` for it (epistery.com today, epistery.app for the older ones). It
+ * is per-identity, so the link follows the row and not one configured URL.
  *
- * Names/addresses/owner/domain are read straight from scan's DB — no network.
- * The public-session enrichment is the only part that reaches the app, and it
- * degrades gracefully: if `appBaseUrl` is unset or the app is unreachable, the
- * identity still indexes with everything but its sessions.
+ * This module does two things with those rows and nothing else:
  *
- * We merge into `entities` rather than replace because the on-chain
- * IdentityContractInterpreter may already hold the same contract address
- * (entities.address is uniquely indexed). App data lives under `metadata.app`;
- * `type: 'AppIdentity'` is only stamped on insert, so a monitored
- * IdentityContract keeps its own type and gains an `app` block.
+ *   1. promotes each into the searchable `entities` collection under
+ *      `metadata.app`, so a named identity is findable even when chain polling
+ *      is switched off;
+ *   2. registers each as a monitored IdentityContract, so the chain
+ *      interpreter — the ONE owner of what an identity is — reads its devices,
+ *      its sections and the sessions it offers.
+ *
+ * It deliberately does not fetch sessions itself. That was a second, parallel
+ * reading of the same identity against one hard-coded app host; the
+ * interpreter now does it per-identity against the host each one is named
+ * under. See ingestion/interpreters/IdentityContractInterpreter.mjs.
  */
 
 // chainId (as stored by the relay) → connector-map slug used elsewhere in scan.
@@ -30,7 +33,13 @@ const CHAIN_SLUGS = { 1: 'ethereum', 137: 'polygon', 80002: 'polygon-amoy', 1115
 export default class AppDirectory {
   constructor(database, options = {}) {
     this.database = database;
-    this.appBaseUrl = (options.appBaseUrl || '').replace(/\/+$/, '');
+    // Chains scan actually has a connector for. An identity on any other chain
+    // is still indexed by name; monitoring it would only log a missing
+    // connector on every poll.
+    this.chains = new Set(options.chains || []);
+    // Current head per chain, supplied by the ingestion manager (which owns the
+    // connectors). Used to set each new monitor's event horizon — see _ensureMonitor.
+    this.currentBlock = options.currentBlock || (async () => null);
     this.pollInterval = options.pollInterval || 3600000; // 1 hour
     this.isRunning = false;
     this.timer = null;
@@ -39,7 +48,7 @@ export default class AppDirectory {
   start() {
     if (this.isRunning) return;
     this.isRunning = true;
-    console.log(`[app-directory] Starting (interval: ${this.pollInterval}ms, app: ${this.appBaseUrl || 'names-only — no app URL configured'})`);
+    console.log(`[app-directory] Starting (interval: ${this.pollInterval}ms, monitoring chains: ${[...this.chains].join(', ') || 'none'})`);
     this.timer = setInterval(() => {
       this.sync().catch(e => console.error('[app-directory] sync error:', e.message));
     }, this.pollInterval);
@@ -53,8 +62,8 @@ export default class AppDirectory {
   }
 
   /**
-   * Read the relay-populated `identities` collection and (re)index each into
-   * `entities`, optionally enriched with the contract's public sessions.
+   * Read the relay-populated `identities` collection, index each row, and put
+   * the ones on a chain we can read under chain monitoring.
    */
   async sync() {
     let rows;
@@ -66,8 +75,10 @@ export default class AppDirectory {
     }
 
     let indexed = 0;
+    let monitored = 0;
     for (const row of rows) {
       if (!row.address) continue;
+      const chain = CHAIN_SLUGS[row.chain] || row.chain || null;
       try {
         const app = {
           name: row.name || null,
@@ -81,70 +92,55 @@ export default class AppDirectory {
           syncedAt: new Date()
         };
 
-        if (this.appBaseUrl) {
-          const home = await this._fetchHome(row.address);
-          if (home) {
-            app.sessions = (home.publicSessions || []).map(s => ({
-              id: s.id,
-              kind: s.kind,
-              name: s.name || null,
-              description: s.description || null,
-              memberCount: s.memberCount ?? null,
-              lastActivity: s.lastActivity ?? null
-            }));
-            app.description = this._describe(app.sessions);
-            app.sessionsSyncedAt = new Date();
-          }
-        }
-
-        await this.database.saveAppIdentity({
-          address: row.address,
-          chain: CHAIN_SLUGS[row.chain] || row.chain || null,
-          app
-        });
+        await this.database.saveAppIdentity({ address: row.address, chain, app });
         indexed++;
+
+        if (chain && this.chains.has(chain) && await this._ensureMonitor(row.address, chain)) monitored++;
       } catch (e) {
         console.warn(`[app-directory] failed to index ${row.address}:`, e.message);
       }
     }
 
-    console.log(`[app-directory] Indexed ${indexed}/${rows.length} app identities`);
-    return { indexed, total: rows.length };
-  }
-
-  _profileUrl(row) {
-    if (!this.appBaseUrl || !row.name) return null;
-    return `${this.appBaseUrl}/@${row.name}`;
+    console.log(`[app-directory] Indexed ${indexed}/${rows.length} identities (${monitored} newly monitored)`);
+    return { indexed, monitored, total: rows.length };
   }
 
   /**
-   * No identity-level description field exists yet, so synthesize a short,
-   * human-readable summary from the public-session mix. Falls back to null
-   * when an identity exposes nothing public.
+   * The identity's page on the host it is named under. No name or no
+   * namespace → no link; we never guess which host speaks for a contract.
    */
-  _describe(sessions) {
-    if (!sessions || !sessions.length) return null;
-    const byKind = {};
-    for (const s of sessions) byKind[s.kind] = (byKind[s.kind] || 0) + 1;
-    return Object.entries(byKind)
-      .map(([kind, n]) => `${n} public ${kind}${n > 1 ? 's' : ''}`)
-      .join(', ');
+  _profileUrl(row) {
+    if (!row.domain || !row.name) return null;
+    return `https://${row.domain}/@${row.name}`;
   }
 
-  async _fetchHome(contract) {
-    try {
-      const controller = new AbortController();
-      const t = setTimeout(() => controller.abort(), 8000);
-      const resp = await fetch(`${this.appBaseUrl}/api/contracts/${contract}/home`, {
-        headers: { Accept: 'application/json' },
-        signal: controller.signal
-      });
-      clearTimeout(t);
-      if (!resp.ok) return null;
-      return await resp.json();
-    } catch {
-      // App unreachable / timeout — identity still indexes without sessions.
-      return null;
-    }
+  /**
+   * Put the contract under chain monitoring if it isn't already. Returns true
+   * when a monitor was added, so a routine pass stays quiet.
+   *
+   * The new monitor's event horizon is the CURRENT block, not the default
+   * hundred-thousand-block look-back. A contract's state — its devices, its
+   * sections, the role each grants — is read whole on every sync from ~15 view
+   * calls, so the card is complete from the first pass; the event log is the
+   * separate, expensive read (one range scan per event signature per contract),
+   * and backfilling days of it for every identity at once would saturate the
+   * poll loop and the RPC quota for hours. So an identity's recorded history
+   * starts the day scan began watching it, the horizon is stamped on the
+   * monitor, and everything before it stays one click away on the explorer.
+   */
+  async _ensureMonitor(address, chain) {
+    const lower = address.toLowerCase();
+    const existing = await this.database.monitors.findOne({ address: lower, chain });
+    if (existing) return false;
+    const fromBlock = await this.currentBlock(chain).catch(() => null);
+    await this.database.addMonitor({
+      address: lower,
+      chain,
+      type: 'IdentityContract',
+      active: true,
+      metadata: { addedAt: new Date(), via: 'app-directory', ...(fromBlock ? { fromBlock } : {}) }
+    });
+    console.log(`[app-directory] Monitoring IdentityContract ${lower} on ${chain}`);
+    return true;
   }
 }

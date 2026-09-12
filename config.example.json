@@ -23,6 +23,5 @@
   "adnet": {
     "factory": "https://adnet.geistm.com"
   },
-  "appBaseUrl": "https://epistery.app",
   "appPollInterval": 3600000
 }

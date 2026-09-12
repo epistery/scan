@@ -2,30 +2,54 @@
   "$id": "https://epistery.com/schema/Identity",
   "schema": "https://epistery.com/schema/Identity",
   "label": "Identity",
-  "version": 1,
-  "description": "An epistery digital identity — an IdentityContract on chain: a collection of interchangeable device keys (rivets), any of which can act for it. Epistery-published vocabulary; the contract state is re-readable by anyone, scan's copy is a cache of it.",
+  "version": 2,
+  "description": "An epistery digital identity — an IdentityContract on chain. It is a collection of interchangeable device keys (rivets), any one of which can act for it, and a set of sections: one per session the identity runs, each carrying that session's on-chain access list. A section's reserved `default` entry is the role every address holds on it, so whether a session is open to the world is a chain fact, not a setting on a server. Epistery-published vocabulary; the contract state is re-readable by anyone and scan's copy is a cache of it. What each session IS — its kind, name and title — is declared by the host the identity is named under, and linked rather than restated.",
+  "identity": {
+    "field": "address",
+    "pattern": "0x… (the IdentityContract address)",
+    "note": "The contract address is the identity. A name is a label one host resolves to it, and different hosts may name the same contract differently."
+  },
+  "fields": [
+    { "name": "address", "type": "string", "identity": true, "description": "The IdentityContract address — the identity itself.", "example": "0x07AADcC18Ad66385e6ad2f42f5c04d960C08fA28" },
+    { "name": "name", "type": "string", "optional": true, "description": "The world-readable display name the contract publishes in its `_profile` section.", "example": "mjs" },
+    { "name": "namespace", "type": "string", "optional": true, "description": "The host this identity is named under — the one that resolves its name and serves its page.", "example": "epistery.com" },
+    { "name": "profileUrl", "type": "url", "optional": true, "description": "The identity's own page on that host.", "example": "https://epistery.com/@mjs" },
+    { "name": "home", "type": "url", "optional": true, "description": "The host's open contract-home read. Fetched with a caller's own identity it answers with the sessions THAT caller may open.", "example": "https://epistery.com/api/contracts/0x07AA…/home" },
+    { "name": "model", "type": "string", "description": "Which generation of the contract this is: `access` (rivets + sections, current), `chat-v3` (the messaging generation), `legacy` (owner + rivets).", "example": "access" },
+    { "name": "creator", "type": "string", "description": "The device that deployed the contract. Provenance only — it holds no power the other rivets lack.", "example": "0xb3E5…ACa0" },
+    { "name": "host", "type": "string", "optional": true, "description": "The rivet designated as the default recovery signer. A rivet like any other, revocable; absent when the identity keeps no recovery key.", "example": "0xf63e…6180" },
+    { "name": "rivets", "type": "object", "items": { "count": "integer", "devices": "array" }, "description": "The devices that can act as this identity. Each device carries its owner-given name, when it was added, and whether it publishes an encryption key others can wrap to.", "example": { "count": 4, "devices": [{ "address": "0xb3E5…ACa0", "name": "browser", "added": "2026-08-17T…", "key": true }] } },
+    { "name": "sessions", "type": "array", "description": "The identity's sessions. Each carries the on-chain access facts (the world's default role, the count of named collaborators) and, where the host declares it, what the session is and where to open it.", "example": [{ "id": "0xAAe6…6611", "kind": "wiki", "name": "recipes", "defaultRole": "read", "members": 2, "onChain": true, "url": "https://epistery.com/@mjs/recipes" }] },
+    { "name": "openSessionCount", "type": "integer", "description": "How many of those sessions grant a role to every address — the ones a walk-up visitor can open.", "example": 3 },
+    { "name": "sessionCount", "type": "integer", "description": "Every session section on the contract, open or not.", "example": 10 },
+    { "name": "removeRivetThreshold", "type": "integer", "optional": true, "description": "How many rivets must agree to remove one — the identity's own governance knob.", "example": 1 },
+    { "name": "messageCount", "type": "integer", "optional": true, "description": "Messages the contract has received directly on chain.", "example": 0 },
+    { "name": "chain", "type": "string", "description": "The chain the contract lives on.", "example": "polygon" },
+    { "name": "url", "type": "url", "optional": true, "description": "The block explorer's page for the contract — where anyone re-reads every figure here." }
+  ],
   "search": {
     "title": ["name"],
     "summary": [
-      { "path": "rivets.count", "suffix": " rivets" },
-      "domain",
-      "variant"
+      { "path": "rivets.count", "suffix": " devices" },
+      { "path": "openSessionCount", "suffix": " open sessions" },
+      "namespace"
     ],
-    "keywords": ["name", "domain", "variant"]
+    "keywords": [
+      "name", "address", "namespace",
+      "sessions.name", "sessions.title", "sessions.kind",
+      "rivets.devices.name"
+    ]
   },
   "display": {
-    "image": "image",
     "facets": [
-      { "label": "Rivets", "path": "rivets.count" },
-      { "label": "Domain", "path": "domain" },
-      { "label": "Owner", "path": "ownerShort" },
-      { "label": "Variant", "path": "variant" },
-      { "label": "Version", "path": "version" },
-      { "label": "Messages", "path": "messageCount" }
+      { "label": "Devices", "path": "rivets.count", "format": "plain" },
+      { "label": "Open sessions", "path": "openSessionCount", "format": "plain" },
+      { "label": "Named at", "path": "namespace" },
+      { "label": "Recovery", "path": "hostShort" }
     ]
   },
   "trust": {
-    "note": "Reserved — identity trust factors (rivet count and age, delegate status, domain binding) declared here as the market defines them. The contract itself is the primary fact.",
+    "note": "Reserved — identity trust factors (device count and age, continuity of the creator device, the two-sided binding between the name a host serves and the contract on chain) declared here as the market defines them. The contract itself is the primary fact.",
     "factors": []
   }
 }
