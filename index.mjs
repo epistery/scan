@@ -2,6 +2,7 @@ import express from 'express';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { createRequire } from 'module';
 import mongodb from 'mongodb';
 import { Config, configuredChains } from 'epistery';
 import Componentry from '@metric-im/componentry';
@@ -17,11 +18,15 @@ import StandingHandler from './handlers/Standing.mjs';
 import McpProxy from './handlers/McpProxy.mjs';
 import Harness from './lib/Harness.mjs';
 import { wantsJson } from './lib/negotiate.mjs';
-import { allMaps, mapFor } from './lib/SchemaMaps.mjs';
+import { allMaps, mapFor, renderSchemaHtml, schemaDefinition } from './lib/SchemaMaps.mjs';
 import { signResponse } from './lib/sign.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const require = createRequire(import.meta.url);
+// Root of the shared brand kit (@epistery/art) — the definitive home for the
+// mark, logos, tokens, and the identicon/field utilities.
+const ART_DIR = path.dirname(require.resolve('@epistery/art'));
 const DB_NAME = 'epistery-scan';
 
 // The version /health reports is the one package.json declares — the only place
@@ -185,6 +190,9 @@ export default class EpisteryScan {
 
     // Static files
     router.use('/static', express.static(path.join(__dirname, 'public')));
+    // Brand kit — served straight from @epistery/art so there is one copy of
+    // the mark. Client pages load /art/field.mjs, /art/identicon.mjs, etc.
+    router.use('/art', express.static(ART_DIR));
 
     // Create handlers
     const searchHandler = new SearchHandler(this.connector, this.harness);
@@ -223,6 +231,24 @@ export default class EpisteryScan {
       const map = mapFor(req.params.name);
       if (!map) return res.status(404).json({ error: `Unknown schema map: ${req.params.name}` });
       res.json(map);
+    });
+
+    // The type IRI objects carry (@type https://epistery.com/schema/<Name>) must
+    // itself RESOLVE — the difference between owning a vocabulary an outside AI can
+    // dereference and having a private code that only looks like a URL. Machines get
+    // the category map (Accept: application/json); browsers get a readable definition.
+    router.get('/schema/:name', (req, res) => {
+      const map = mapFor(req.params.name);
+      if (!map) {
+        if (wantsJson(req)) return res.status(404).json({ error: `Unknown schema: ${req.params.name}` });
+        const safe = String(req.params.name).replace(/[<>&]/g, '');
+        return res.status(404).type('html')
+          .send(`<!doctype html><meta charset="utf-8"><h1>404 — no epistery schema "${safe}"</h1><p><a href="/api/schema">All published types</a></p>`);
+      }
+      // Machines get the self-describing DEFINITION (JSON-LD) — the type and its
+      // fields' meanings — NOT scan's category map (that lives at /api/schema).
+      if (wantsJson(req)) return res.type('application/ld+json').send(JSON.stringify(schemaDefinition(map), null, 2));
+      res.type('html').send(renderSchemaHtml(map));
     });
 
     // Skill proxy — top-level alias for /api/search/skill/:name/call
@@ -385,9 +411,11 @@ export default class EpisteryScan {
       res.sendFile(path.join(__dirname, 'public/developers.html'));
     });
     // Unlisted — the whole base field, and the tool that dices it into
-    // identities. Not in the nav on purpose.
+    // identities. Not in the nav on purpose. The page itself now lives in the
+    // brand kit (@epistery/art); we just serve it here at the familiar URL. It
+    // loads /art/field.mjs, which the mount above provides.
     router.get('/logo', (req, res) => {
-      res.sendFile(path.join(__dirname, 'public/logo.html'));
+      res.sendFile(path.join(ART_DIR, 'logo.html'));
     });
 
     console.log(`[epistery-scan] Agent attached — search the signed web`);

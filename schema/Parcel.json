@@ -1,0 +1,64 @@
+{
+  "$id": "https://epistery.com/schema/Parcel",
+  "schema": "https://epistery.com/schema/Parcel",
+  "label": "Parcel",
+  "version": 1,
+  "description": "A parcel of real property as a government cadastral or assessment roll records it — its identity (the parcel or folio number), who is on the roll for it, how it is classified for use, and what it was assessed at. Epistery-published vocabulary: schema.org types places and real-estate listings, not land records. This is the general parcel type; AgParcel (agricultural use) and TaxParcel (a taxing authority's roll, e.g. NYC borough/block/lot) are specializations of the same idea. The parcel identifier is the identity; ownership, use and value are observations against it for a stated roll, and are authoritative only as of that roll.",
+  "identity": {
+    "field": "parcelId",
+    "pattern": "parcel:<state>:<county>:<parcelId>",
+    "note": "The @id is state, county, and the parcel/folio number. A parcel number is unique only within its county."
+  },
+  "fields": [
+    { "name": "parcelId", "type": "string", "identity": true, "description": "The parcel or folio number as the assessing authority's roll records it.", "example": "514212070260" },
+    { "name": "name", "type": "string", "description": "A human label for the parcel, normally its situs (physical) address.", "example": "1801 SE 17TH ST, FORT LAUDERDALE" },
+    { "name": "owner", "type": "string", "description": "The owner of record as the roll names them — a person, entity, trust, or estate.", "example": "SEASIDE HOLDINGS LLC" },
+    { "name": "address", "type": "object", "items": { "streetAddress": "string", "addressLocality": "string", "addressRegion": "string", "postalCode": "string" }, "description": "The parcel's situs (physical) address.", "example": { "streetAddress": "1801 SE 17TH ST", "addressLocality": "FORT LAUDERDALE", "addressRegion": "FL", "postalCode": "33316" } },
+    { "name": "county", "type": "string", "description": "County of record.", "example": "Broward" },
+    { "name": "state", "type": "string", "description": "State of record (2-letter).", "example": "FL" },
+    { "name": "useCode", "type": "string", "description": "The assessing authority's own land-use classification code.", "example": "001" },
+    { "name": "useDescription", "type": "string", "description": "Human-readable land use for that code.", "example": "Single family" },
+    { "name": "marketValue", "type": "number", "unit": "USD", "description": "The just/market value the roll assessed for the roll year.", "example": 850000 },
+    { "name": "landValue", "type": "number", "unit": "USD", "optional": true, "description": "The land-only assessed value.", "example": 300000 },
+    { "name": "yearBuilt", "type": "integer", "optional": true, "description": "Year the primary structure was built.", "example": 1998 },
+    { "name": "livingArea", "type": "number", "unit": "sqft", "optional": true, "description": "Heated / living area of the structure.", "example": 2400 },
+    { "name": "source", "type": "string", "description": "The government roll this record came from.", "example": "FL Department of Revenue (statewide parcel + sales export)" },
+    { "name": "url", "type": "url", "optional": true, "description": "The assessing authority's own page for this parcel, when available." }
+  ],
+  "search": {
+    "title": ["name"],
+    "summary": [
+      { "path": "address.streetAddress" },
+      "owner",
+      { "path": "county", "suffix": " County" },
+      { "path": "marketValue", "prefix": "$" },
+      "source"
+    ],
+    "keywords": [
+      "name", "parcelId", "owner", "county", "state",
+      "address.streetAddress", "address.addressLocality", "address.postalCode",
+      "useCode", "useDescription"
+    ]
+  },
+  "display": {
+    "facets": [
+      { "label": "Parcel", "path": "parcelId" },
+      { "label": "Owner", "path": "owner" },
+      { "label": "Address", "path": "address.streetAddress" },
+      { "label": "City", "path": "address.addressLocality" },
+      { "label": "County", "path": "county" },
+      { "label": "State", "path": "state" },
+      { "label": "Use", "path": "useDescription" },
+      { "label": "Use code", "path": "useCode", "format": "plain" },
+      { "label": "Market value", "path": "marketValue", "prefix": "$" },
+      { "label": "Land value", "path": "landValue", "prefix": "$" },
+      { "label": "Built", "path": "yearBuilt", "format": "plain" },
+      { "label": "Living area (sq ft)", "path": "livingArea", "format": "plain" },
+      { "label": "Source", "path": "source" }
+    ]
+  },
+  "trust": {
+    "note": "Reserved — cadastral proof points (roll year, county/authority of record, assessment or extract date) as the market defines them. A parcel record is authoritative only as of its roll; the vintage belongs here.",
+    "factors": []
+  }
+}

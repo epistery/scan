@@ -1,0 +1,54 @@
+{
+  "$id": "https://epistery.com/schema/RecordedInstrument",
+  "schema": "https://epistery.com/schema/RecordedInstrument",
+  "label": "RecordedInstrument",
+  "version": 1,
+  "description": "A legal instrument as a county recorder or clerk of court entered it into the public record against a property — a deed, mortgage, lien, lis pendens, judgment, or satisfaction — identified by its recording (instrument) number. Epistery-published vocabulary: schema.org has no type for a recorded land-records instrument. The instrument number is the identity; the parties, the affected parcel, the document type, and the recording date are what it carries. A link from an instrument to a specific parcel is reported with its confidence (confirmed vs. name-only), never asserted.",
+  "identity": {
+    "field": "instrumentNumber",
+    "pattern": "instrument:<recordingOffice>:<instrumentNumber>",
+    "note": "The @id is the recording office plus the instrument number. The instrument number alone is unique only within one office."
+  },
+  "fields": [
+    { "name": "instrumentNumber", "type": "string", "identity": true, "description": "The recording office's own recording number — the instrument's identity.", "example": "116543210" },
+    { "name": "docType", "type": "string", "description": "The instrument kind as the recording office labels it, verbatim.", "example": "LIS PENDENS" },
+    { "name": "instrumentType", "type": "string", "description": "Normalized category, one of: lis_pendens, lien, final_judgment, mortgage, satisfaction.", "example": "lis_pendens" },
+    { "name": "recordDate", "type": "date", "description": "When the instrument was entered into the public record.", "example": "03/14/2024" },
+    { "name": "caseNumber", "type": "string", "optional": true, "description": "Associated court case number, when the instrument is a court filing.", "example": "CACE24001234" },
+    { "name": "consideration", "type": "number", "unit": "USD", "optional": true, "description": "Stated monetary consideration, when the instrument carries one.", "example": 0 },
+    { "name": "parcelId", "type": "string", "optional": true, "description": "The parcel the instrument affects, when matched to one. The match confidence is reported, never asserted.", "example": "514212070260" },
+    { "name": "legalDescription", "type": "string", "optional": true, "description": "The legal description of the affected property as recorded.", "example": "LOT 5 BLK 2" },
+    { "name": "parties", "type": "array", "items": { "name": "string", "role": "string (grantor|grantee)" }, "description": "The named parties. role is grantor (the party the instrument runs from) or grantee (the party it runs to).", "example": [{ "name": "DEUTSCHE BANK NA", "role": "grantor" }, { "name": "SEASIDE HOLDINGS LLC", "role": "grantee" }] },
+    { "name": "source", "type": "string", "description": "The recording office this record came from.", "example": "Broward County Clerk of Courts (SFTP bulk)" },
+    { "name": "url", "type": "url", "optional": true, "description": "Link to the origin's own record for this instrument, when available." }
+  ],
+  "search": {
+    "title": ["docType"],
+    "summary": [
+      "instrumentType",
+      { "path": "recordDate" },
+      { "path": "parcelId", "prefix": "parcel " },
+      "source"
+    ],
+    "keywords": [
+      "instrumentNumber", "docType", "instrumentType",
+      "parcelId", "caseNumber", "parties.name", "legalDescription"
+    ]
+  },
+  "display": {
+    "facets": [
+      { "label": "Instrument", "path": "instrumentNumber", "format": "plain" },
+      { "label": "Type", "path": "docType" },
+      { "label": "Recorded", "path": "recordDate" },
+      { "label": "Case", "path": "caseNumber" },
+      { "label": "Parcel", "path": "parcelId" },
+      { "label": "Parties", "path": "parties.name", "all": true, "join": ", " },
+      { "label": "Consideration", "path": "consideration", "prefix": "$" },
+      { "label": "Source", "path": "source" }
+    ]
+  },
+  "trust": {
+    "note": "Reserved — recording proof points (recorder/clerk of record, instrument number, recording date, and the confidence of any parcel match) as the market defines them. An instrument is authoritative as the public record entered it; a parcel match is only as strong as its match type.",
+    "factors": []
+  }
+}

@@ -12,6 +12,15 @@ export default class ChainConnector {
     this.rpcUrl = config.rpcUrl;
     this.chainId = config.chainId || null;
     this.provider = null;
+
+    // Circuit breaker for event scans. When the RPC persistently refuses a
+    // scan — a free-tier getLogs that rejects every range, or a dead endpoint —
+    // we stop re-issuing the same doomed calls on every poll and fail fast
+    // during a cool-down instead. Without this, one broken provider turns the
+    // ingestion poll loop into an RPC flood (the 2026-08-30 drpc runaway).
+    // Keyed per scan target so one bad contract can't mute the rest; any clean
+    // scan clears it, so recovery is automatic once the RPC/owned node is up.
+    this._scanBreaker = new Map(); // key -> { failures, openUntil }
   }
 
   /**
@@ -50,58 +59,123 @@ export default class ChainConnector {
   }
 
   /**
-   * Query events from a contract
-   * Chunks large block ranges to avoid RPC timeouts
+   * Query events from a contract over a block range.
+   *
+   * Two honest guarantees:
+   *  1. It adapts to whatever getLogs range the *actual* provider will serve —
+   *     shrinking the chunk when the RPC says the range/response is too large,
+   *     so an owned node (no cap), Infura (10k cap) and a stingy free tier all
+   *     work without a hand-tuned constant.
+   *  2. It NEVER returns a partial result as if it were complete. If a window
+   *     genuinely cannot be read, it THROWS. The caller then leaves its
+   *     checkpoint where it is, so we re-read that window later instead of
+   *     silently skipping chain history (a trust product cannot have gaps).
+   *
+   * A per-target circuit breaker turns a persistently-refusing RPC into a
+   * couple of fail-fast throws per cool-down, not a poll-loop flood.
    */
   async queryEvents(address, eventFilter, fromBlock, toBlock) {
+    const bkey = this._breakerKey(address, eventFilter);
+    const br = this._scanBreaker.get(bkey);
+    if (br && br.openUntil > Date.now()) {
+      // Circuit open — this RPC has been refusing this scan. Fail fast with no
+      // RPC call at all, so a broken/limited provider can't spin the poll loop.
+      const secs = Math.ceil((br.openUntil - Date.now()) / 1000);
+      throw new Error(`[connector:${this.chain}] scan circuit open for ${address} (${eventFilter}) — cooling down ${secs}s after ${br.failures} consecutive failure(s); not querying`);
+    }
+
     const contract = new ethers.Contract(address, ['event ' + eventFilter], this.provider);
     const filter = contract.filters[eventFilter.split('(')[0]]();
 
-    // Infura supports up to 10,000 blocks per eth_getLogs call on Polygon.
-    // Use 2,000 — safe across providers, 2,000x fewer calls than the old value.
-    const chunkSize = 2000;
+    const MAX_CHUNK = 2000;   // Infura's Polygon getLogs ceiling; fine for owned nodes too.
+    const MIN_CHUNK = 64;     // Floor: if even this is refused, the provider can't serve getLogs at all.
+    const MAX_TRANSIENT_RETRIES = 4;
     const from = fromBlock || 0;
     const to = toBlock || await this.getCurrentBlock();
 
     const allEvents = [];
-    let consecutiveErrors = 0;
+    let chunk = MAX_CHUNK;     // Adaptive: shrinks to fit the provider, then stays shrunk for the rest of this scan.
+    let start = from;
+    let transientRetries = 0;
 
-    for (let start = from; start <= to; start += chunkSize) {
-      const end = Math.min(start + chunkSize - 1, to);
+    while (start <= to) {
+      const end = Math.min(start + chunk - 1, to);
 
       try {
         const events = await contract.queryFilter(filter, start, end);
         allEvents.push(...events);
-        consecutiveErrors = 0;
-
+        transientRetries = 0;
         if (events.length > 0) {
           console.log(`[connector:${this.chain}] Found ${events.length} events in blocks ${start}-${end}`);
         }
-
-        if (start + chunkSize <= to) {
-          await new Promise(resolve => setTimeout(resolve, 200));
-        }
+        start = end + 1;
+        if (start <= to) await new Promise(resolve => setTimeout(resolve, 200));
       } catch (error) {
         // BAD_DATA with value "0x" is the provider saying "no logs here" — not
-        // a real error. Don't log, don't retry, don't count against the budget.
-        if (error.code === 'BAD_DATA') {
-          continue;
+        // an error. Advance past it.
+        if (error.code === 'BAD_DATA') { start = end + 1; transientRetries = 0; continue; }
+
+        // Range/response too large → shrink and retry the SAME window. This is
+        // the real fit: keep halving until the provider accepts it.
+        if (this._isRangeLimitError(error)) {
+          if (chunk > MIN_CHUNK) {
+            chunk = Math.max(MIN_CHUNK, chunk >> 1);
+            console.warn(`[connector:${this.chain}] range refused at ${start}-${end}; shrinking chunk to ${chunk} and retrying`);
+            continue;   // same start, smaller end
+          }
+          // Refused even at the floor → this provider won't serve getLogs
+          // (e.g. a free tier). Hard stop: trip the breaker and fail loud.
+          this._tripBreaker(bkey, error, `${start}-${end}`);
+          throw new Error(`[connector:${this.chain}] event scan blocked at blocks ${start}-${end} — provider refuses getLogs even at ${MIN_CHUNK}-block ranges: ${error.message}`);
         }
 
-        console.error(`[connector:${this.chain}] Error querying blocks ${start}-${end}:`, error.message);
-        consecutiveErrors++;
-
-        if (consecutiveErrors >= 5) {
-          console.error(`[connector:${this.chain}] Too many consecutive errors, aborting event scan`);
-          break;
+        // Otherwise a transient failure (network / 5xx). Bounded backoff-retry
+        // of the same chunk; give up loud after the budget so we never advance
+        // past an unread window.
+        transientRetries++;
+        if (transientRetries > MAX_TRANSIENT_RETRIES) {
+          this._tripBreaker(bkey, error, `${start}-${end}`);
+          throw new Error(`[connector:${this.chain}] event scan failed at blocks ${start}-${end} after ${MAX_TRANSIENT_RETRIES} retries: ${error.message}`);
         }
-
-        const backoff = Math.min(10000, 1000 * Math.pow(2, consecutiveErrors - 1));
+        const backoff = Math.min(10000, 1000 * Math.pow(2, transientRetries - 1));
+        console.error(`[connector:${this.chain}] transient error at blocks ${start}-${end} (retry ${transientRetries}/${MAX_TRANSIENT_RETRIES}): ${error.message}`);
         await new Promise(resolve => setTimeout(resolve, backoff));
       }
     }
 
+    // Clean scan of the whole window — clear any prior breaker state so a
+    // recovered provider (or the new owned node) resumes at full speed.
+    this._scanBreaker.delete(bkey);
     return allEvents.map(event => this.normalizeEvent(event));
+  }
+
+  _breakerKey(address, eventFilter) {
+    return `${this.chain}:${address}:${eventFilter}`.toLowerCase();
+  }
+
+  // A "the range/response is too big" or "getLogs not allowed here" signal from
+  // any provider. Matched broadly across message, JSON-RPC error and the nested
+  // provider body (drpc: `code:35 "ranges over 10000 blocks..."`; others use
+  // -32005 / "query returned more than N results" / "response size exceeded").
+  _isRangeLimitError(error) {
+    const hay = [
+      error?.message,
+      error?.error?.message,
+      error?.shortMessage,
+      (() => { try { return JSON.stringify(error?.info); } catch { return ''; } })(),
+    ].join(' ').toLowerCase();
+    return /over \d+ blocks|block range|range is too|too many blocks|response size|result set too large|returned more than|query timeout|limit exceeded|exceeds? the limit|"code":\s*35|-32005/.test(hay);
+  }
+
+  _tripBreaker(key, error, window) {
+    const prev = this._scanBreaker.get(key);
+    const failures = (prev?.failures || 0) + 1;
+    // Exponential cool-down, capped: 30s, 60s, 120s … up to 15 min. Long enough
+    // that a persistently-broken RPC costs a couple of calls per cool-down (not
+    // a flood), short enough to recover promptly once the RPC/node is fixed.
+    const cool = Math.min(15 * 60 * 1000, 30 * 1000 * Math.pow(2, Math.min(failures - 1, 5)));
+    this._scanBreaker.set(key, { failures, openUntil: Date.now() + cool });
+    console.error(`[connector:${this.chain}] scan circuit OPEN for blocks ${window} after ${failures} failure(s) — cooling down ${Math.round(cool / 1000)}s. Underlying: ${error.message}`);
   }
 
   /**
