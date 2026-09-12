@@ -6,3 +6,5 @@ secrets.json
 .idea
 /img_*.png
 /img.png
+.claude
+
