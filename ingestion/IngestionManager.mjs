@@ -63,6 +63,7 @@ export default class IngestionManager {
     this.appDirectory = new AppDirectory(this.database, {
       chains: Object.keys(this.connectors),
       currentBlock: (chain) => this.connectors[chain].getCurrentBlock(),
+      retiredNamespaces: this.config.retiredNamespaces || [],
       pollInterval: this.config.appPollInterval || 3600000
     });
 

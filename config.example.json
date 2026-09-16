@@ -23,5 +23,6 @@
   "adnet": {
     "factory": "https://adnet.geistm.com"
   },
+  "retiredNamespaces": ["epistery.app"],
   "appPollInterval": 3600000
 }

@@ -436,6 +436,25 @@ export default class Database {
   }
 
   /**
+   * Drop an entity and the event history keyed to it.
+   *
+   * Used when an identity's namespace can no longer serve it (see
+   * ingestion/AppDirectory.mjs). Such a row is not merely stale, it is
+   * unopenable, and a public index should not carry a result nobody can reach.
+   * The contract stays on chain, which is where it was the truth all along.
+   *
+   * Address match is case-insensitive: rows written before the lowercase
+   * convention may still be mixed case. Returns whether a row was actually
+   * removed, so a repeat pass can stay quiet.
+   */
+  async removeEntity(address) {
+    const addressRegex = new RegExp(`^${address}$`, 'i');
+    const { deletedCount } = await this.entities.deleteOne({ address: addressRegex });
+    await this.events.deleteMany({ entityId: addressRegex });
+    return deletedCount > 0;
+  }
+
+  /**
    * Save or update a transaction
    */
   async saveTransaction(transaction, chain) {

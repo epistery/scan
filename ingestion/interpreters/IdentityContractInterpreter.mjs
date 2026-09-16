@@ -224,7 +224,6 @@ export default class IdentityContractInterpreter {
     // field — indexed, and what search and the domain-binding signal read. For
     // the current generation that is the namespace; the older ones declare
     // their own on the contract and keep it.
-    if (!metadata.domain) metadata.domain = metadata.namespace;
 
     // ── what the identity itself declares ──────────────────────────────────
     // Its host's open contract-home read: the sessions it offers a walk-up
@@ -235,6 +234,12 @@ export default class IdentityContractInterpreter {
     metadata.sessions = this._mergeSessions(address, metadata, declared);
 
     const now = new Date();
+    // Where the domain shown for this entity came from. `contract` means the
+    // contract itself declares it (the older generation's own `domain()`).
+    // `namespace` is our directory row — where a name was registered, which is not
+    // something the identity said. Search renders one field, so it must say which.
+    metadata.domainSource = metadata.domain ? 'contract' : (metadata.namespace ? 'namespace' : null);
+    if (!metadata.domain) metadata.domain = metadata.namespace;
     const signals = { contractExists: { present: true, at: now, address } };
     // The identity's host confirms the same contract the chain describes —
     // the two-sided binding between a name on a host and a contract on chain.
@@ -243,18 +248,23 @@ export default class IdentityContractInterpreter {
       at: now,
       host: metadata.namespace || null
     };
-    if (metadata.namespace) {
-      const domainEntity = await this.database.getEntity(metadata.namespace);
-      signals.domainBinding = {
-        present: !!domainEntity && domainEntity.type === 'AIDiscovery',
-        at: now,
-        domain: metadata.namespace
-      };
-    } else {
-      signals.domainBinding = { present: false, at: now };
-    }
+    // domainBinding — only when the CONTRACT declares a domain itself.
+    //
+    // This used to be "an AIDiscovery entity exists for the namespace we filed
+    // this contract under", which is us confirming our own record: true for every
+    // identity named on a domain that publishes a manifest, whatever the contract
+    // said. The current generation declares nothing on chain, so the honest answer
+    // for it is absent-with-a-reason, not a free 25 points.
+    signals.domainBinding = (metadata.domainSource === 'contract' && metadata.domain)
+      ? { present: true, at: now, domain: metadata.domain, source: 'contract' }
+      : { present: false, at: now, reason: 'the contract declares no domain of its own' };
     metadata.signals = signals;
     metadata.trustScore = computeTrustScore(signals);
+    // Where the displayed domain came from. `attachment` is a fact the contract
+    // states and the domain signed. `namespace` is our own directory row — where a
+    // name was registered, not something the identity declared. Search renders one
+    // field, so it has to say which of the two it is holding.
+
 
     const openSessions = metadata.sessions.filter(s => s.defaultRole && s.defaultRole !== 'none');
     metadata.object = buildObjectDigest({

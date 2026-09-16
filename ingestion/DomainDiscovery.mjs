@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import dns from 'dns';
 import { Config } from 'epistery';
+import { ethers } from 'ethers';
 import { computeTrustScore } from '../lib/Posture.mjs';
 
 const dnsResolver = new dns.promises.Resolver();
@@ -772,13 +773,15 @@ export default class DomainDiscovery {
     // manifest — always present if we got here
     signals.manifest = { present: true, at: now };
 
-    // selfSigned — _signature block exists
-    signals.selfSigned = {
-      present: !!sig.digitalName,
-      at: now,
-      digitalName: sig.digitalName || null,
-      method: sig.method || null
-    };
+    // selfSigned — the manifest carries a signature that VERIFIES.
+    //
+    // This used to be `!!sig.digitalName`: an address written next to a document,
+    // which anyone can do about anyone. A v1 block naming a key and carrying no
+    // signature scored exactly the same as a real one, so the signal measured
+    // nothing. Now the bytes are rebuilt from the document and the recovered
+    // signer must be the address the manifest names. A v1 manifest (no signature)
+    // is reported as unsigned rather than accused of forgery.
+    signals.selfSigned = await this._verifyManifestSignature(domain, manifest, now);
 
     // hashValid — SHA-256 with `generated` stripped before hashing
     try {
@@ -794,30 +797,40 @@ export default class DomainDiscovery {
       signals.hashValid = { present: false, at: now, error: e.message };
     }
 
-    // contractExists — signing identity has on-chain contract
+    // contractExists — the identity the manifest names has an on-chain contract.
+    //
+    // Both shapes count. `Agent` is the DomainAgent generation; `IdentityContract`
+    // is the current one, and excluding it meant the signal could never fire for
+    // the estate's own identities — a check that was structurally false rather
+    // than measuring anything.
     let agentEntity = null;
+    const CONTRACT_TYPES = new Set(['Agent', 'IdentityContract']);
     if (sig.digitalName) {
       agentEntity = await this.database.getEntity(sig.digitalName);
       signals.contractExists = {
-        present: !!agentEntity && agentEntity.type === 'Agent',
+        present: !!agentEntity && CONTRACT_TYPES.has(agentEntity.type),
         at: now,
-        address: sig.digitalName
+        address: sig.digitalName,
+        contractType: agentEntity?.type || null
       };
     } else {
       signals.contractExists = { present: false, at: now };
     }
 
-    // domainBinding — bidirectional: agent.metadata.domain points back to this domain
-    if (agentEntity && agentEntity.type === 'Agent' && agentEntity.metadata?.domain) {
-      const agentDomain = agentEntity.metadata.domain.toLowerCase();
-      signals.domainBinding = {
-        present: agentDomain === domain?.toLowerCase(),
-        at: now,
-        agentDomain
-      };
-    } else {
-      signals.domainBinding = { present: false, at: now };
-    }
+    // domainBinding — both directions, and each side's own claim.
+    //
+    // The domain half is this manifest naming the contract. The identity half is
+    // the contract's own `_profile/domain`, which for the current generation holds
+    // the DOMAIN'S SIGNATURE over {contract, domain, ts} — a proof, recovered and
+    // checked against the wallet this domain publishes. A contract whose attribute
+    // holds a bare string has asserted a domain and proved nothing, and is reported
+    // as unproven rather than counted.
+    //
+    // What this must never do is compare the domain against the namespace our own
+    // index filed the contract under. That is our record of where a name was
+    // registered, not a statement the identity made, and reading it back as a
+    // binding would be us confirming ourselves.
+    signals.domainBinding = this._bindingFromContract(domain, agentEntity, now);
 
     // dnsVerified — TXT record exists
     signals.dnsVerified = {
@@ -838,6 +851,92 @@ export default class DomainDiscovery {
     signals.challengeProven = { present: false, at: now };
 
     return signals;
+  }
+
+  /**
+   * Did this domain actually sign its own manifest?
+   *
+   * Rebuilds the bytes the manifest states it signed and recovers the signer,
+   * using the construction from the epistery package — one owner, because a
+   * publisher and a verifier holding separate copies of it will eventually
+   * disagree and the disagreement will read as forgery.
+   *
+   * A v1 manifest carries a content hash and a claimed address and NO signature.
+   * That is unsigned, not forged, and it is reported as unsigned: the two must stay
+   * distinguishable or every honest older domain looks like an attacker.
+   */
+  async _verifyManifestSignature(domain, manifest, now) {
+    const sig = manifest?._signature || {};
+    if (!sig.digitalName) return { present: false, at: now, reason: 'no _signature block' };
+    if (!sig.signature) {
+      return {
+        present: false, at: now, digitalName: sig.digitalName, method: sig.method || null,
+        reason: 'names an address but carries no signature (v1)',
+      };
+    }
+    try {
+      // Rebuild the bytes the manifest states it signed, and recover.
+      //
+      // The construction is the published one: the tag, the version, the domain and
+      // the content hash, joined by newlines — a manifest states it in `signedOver`
+      // so a verifier never guesses. The hash is this document with `_signature` and
+      // `generated` removed and every key sorted, which is the same canonical form
+      // collectSignals already computes for hashValid.
+      //
+      // Verified here rather than imported, because scan is the verifier of a
+      // PUBLISHED format and must check manifests from domains that run none of our
+      // code. If the construction ever moves into the epistery package, this should
+      // import it instead — one owner beats two copies that can drift.
+      const clone = JSON.parse(JSON.stringify(manifest));
+      delete clone._signature;
+      delete clone.generated;
+      const hash = 'sha256:' + crypto.createHash('sha256')
+        .update(JSON.stringify(this.sortKeys(clone))).digest('hex');
+      if (hash !== sig.contentHash) {
+        return { present: false, at: now, reason: `content hash mismatch (computed ${hash})` };
+      }
+      const message = ['epistery-domain-manifest', '1', String(domain).toLowerCase(), hash].join('\n');
+      // ethers v6 here (v5 keeps verifyMessage on .utils).
+      const recover = ethers.verifyMessage ?? ethers.utils?.verifyMessage;
+      const signer = recover(message, sig.signature);
+      const matches = signer.toLowerCase() === String(sig.digitalName).toLowerCase();
+      return {
+        present: matches, at: now, digitalName: sig.digitalName, method: sig.method || null,
+        ...(matches ? { signer } : { reason: `signed by ${signer}, not the declared ${sig.digitalName}` }),
+      };
+    } catch (e) {
+      return { present: false, at: now, reason: `verification failed: ${e.message}` };
+    }
+  }
+
+  /**
+   * Do the domain and the contract point at each other?
+   *
+   * The domain's half is this manifest naming the contract. The identity's half
+   * has to be something the CONTRACT says — a domain it declares on chain, which
+   * the older DomainAgent generation does through its own `domain()`.
+   *
+   * What this must never do is compare against the namespace our own index filed
+   * the contract under. That is our record of where a name was registered, not a
+   * statement the identity made, and reading it back as a binding is us
+   * confirming ourselves — which is what it did, so every identity named on a
+   * domain that publishes a manifest scored as bound whatever its contract said.
+   *
+   * The current IdentityContract generation declares nothing on chain, so this is
+   * honestly absent for those rather than assumed. Giving them a way to declare it
+   * provably is a separate piece of work, deliberately not folded in here.
+   */
+  _bindingFromContract(domain, agentEntity, now) {
+    if (!agentEntity) return { present: false, at: now, reason: 'the manifest names no on-chain contract' };
+    if (agentEntity.metadata?.domainSource !== 'contract') {
+      return { present: false, at: now, reason: 'the contract declares no domain of its own' };
+    }
+    const declared = String(agentEntity.metadata.domain || '').toLowerCase();
+    return {
+      present: declared === String(domain || '').toLowerCase(),
+      at: now,
+      declared,
+    };
   }
 
   /**

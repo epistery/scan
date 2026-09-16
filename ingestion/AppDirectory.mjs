@@ -27,6 +27,24 @@
  * under. See ingestion/interpreters/IdentityContractInterpreter.mjs.
  */
 
+// A namespace scan will carry identities under: a host that can actually serve
+// the identity's page to the public.
+//
+// This is a STRUCTURAL test and deliberately not a liveness probe. Dropping an
+// identity is cancelling data, so the decision must never hinge on whether a
+// host answered one HTTP request — a deploy restart would otherwise empty the
+// index of real people. A host that is not publicly routable can serve nobody,
+// today or ever, and that is a fact no network weather changes.
+const PRIVATE_HOST = /^(localhost|127\.|0\.0\.0\.0|\[?::1\]?|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/i;
+function isPublicNamespace(namespace) {
+  if (!namespace) return false;
+  const host = String(namespace).toLowerCase().split(':')[0];
+  if (PRIVATE_HOST.test(host)) return false;
+  if (host.endsWith('.local') || host.endsWith('.internal')) return false;
+  // A bare hostname resolves for nobody outside the network that minted it.
+  return host.includes('.');
+}
+
 // chainId (as stored by the relay) → connector-map slug used elsewhere in scan.
 const CHAIN_SLUGS = { 1: 'ethereum', 137: 'polygon', 80002: 'polygon-amoy', 11155111: 'sepolia', 81: 'japanopenchain' };
 
@@ -40,6 +58,10 @@ export default class AppDirectory {
     // Current head per chain, supplied by the ingestion manager (which owns the
     // connectors). Used to set each new monitor's event horizon — see _ensureMonitor.
     this.currentBlock = options.currentBlock || (async () => null);
+    // Hosts the operator has retired. A retired host is publicly routable and
+    // may still resolve in DNS, so nothing structural reveals it — it has to be
+    // declared. Explicit and binary, never inferred from a failed fetch.
+    this.retired = new Set((options.retiredNamespaces || []).map(d => String(d).toLowerCase()));
     this.pollInterval = options.pollInterval || 3600000; // 1 hour
     this.isRunning = false;
     this.timer = null;
@@ -76,10 +98,18 @@ export default class AppDirectory {
 
     let indexed = 0;
     let monitored = 0;
+    let dropped = 0;
     for (const row of rows) {
       if (!row.address) continue;
       const chain = CHAIN_SLUGS[row.chain] || row.chain || null;
       try {
+        // The namespace decides whether this identity can be reached at all.
+        // Checked before anything is written, and applied to what is already
+        // written, so the gate and the cleanup are the same one rule.
+        if (!this.indexable(row.domain)) {
+          if (await this._retire(row.address, chain)) dropped++;
+          continue;
+        }
         const app = {
           name: row.name || null,
           nameLower: row.nameLower || (row.name ? row.name.toLowerCase() : null),
@@ -101,8 +131,36 @@ export default class AppDirectory {
       }
     }
 
-    console.log(`[app-directory] Indexed ${indexed}/${rows.length} identities (${monitored} newly monitored)`);
-    return { indexed, monitored, total: rows.length };
+    console.log(`[app-directory] Indexed ${indexed}/${rows.length} identities (${monitored} newly monitored${dropped ? `, ${dropped} dropped` : ''})`);
+    return { indexed, monitored, dropped, total: rows.length };
+  }
+
+  /**
+   * Whether scan will carry identities named under this host.
+   *
+   * An identity is findable so that someone can go to it. When the host that
+   * names it cannot serve it — unroutable, or retired by its operator — the
+   * result leads nowhere, and a search engine that lists it is lying about
+   * what it found. The contract is untouched on chain either way.
+   */
+  indexable(namespace) {
+    if (!isPublicNamespace(namespace)) return false;
+    return !this.retired.has(String(namespace).toLowerCase());
+  }
+
+  /**
+   * Take an identity back out of the index because its namespace can no longer
+   * serve it, and stop paying RPC to watch it.
+   *
+   * Idempotent: once the row is gone a later pass removes nothing and says
+   * nothing, so this converges rather than chattering every hour.
+   */
+  async _retire(address, chain) {
+    const lower = address.toLowerCase();
+    const removed = await this.database.removeEntity(address);
+    if (chain) await this.database.deactivateMonitor(lower, chain);
+    if (removed) console.log(`[app-directory] Dropped ${lower} — namespace cannot serve it`);
+    return removed;
   }
 
   /**

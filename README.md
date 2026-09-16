@@ -35,7 +35,10 @@ index.mjs                         Express server, TLS, Harness, route mounting
   |     ChainConnector.mjs        Normalized blockchain RPC access (ethers v6)
   |     DomainDiscovery.mjs       Crawls domains for /.well-known/ai manifests
   |     AppDirectory.mjs          Identity names from the relay's directory rows; puts
-  |     |                         each contract under chain monitoring
+  |     |                         each contract under chain monitoring. Carries only
+  |     |                         identities whose namespace can serve them -- an
+  |     |                         unroutable host, or one named in `retiredNamespaces`,
+  |     |                         is dropped from the index and unwatched
   |     |
   |     +-- interpreters/
   |           AgentInterpreter.mjs              Agent.sol -- domain hosts, ACLs, attributes
