@@ -112,6 +112,25 @@ export default class IngestionManager {
   }
 
   /**
+   * Re-read an entity that is already monitored, now. The poll loop re-syncs only
+   * on chain events, but some of what an entity presents is signed off chain — a
+   * session's declaration — and changes without one. Anyone may ask: a re-read
+   * only goes back to the source and re-verifies what it signed, so the asking
+   * carries no trust. It does not touch the monitor row, so its provenance stays.
+   * Returns false when the address is not monitored.
+   */
+  async resync(address) {
+    address = address.toLowerCase();
+    const monitors = await this.database.monitors.find({ address, active: true }).toArray();
+    if (!monitors.length) return false;
+    for (const monitor of monitors) {
+      const interpreter = this.registry.get(monitor.type);
+      if (interpreter) await interpreter.sync(monitor.address, monitor.chain);
+    }
+    return true;
+  }
+
+  /**
    * Remove a monitor
    */
   async removeMonitor(address, chain) {
