@@ -80,6 +80,21 @@ export default class EpisteryScan {
   }
 
   async attach(router) {
+    // Scan's handlers read req.body (monitor, feed, discovery submissions), so
+    // scan parses its own bodies — on the router it is handed, reaching only its
+    // own routes. A host that mounts scan (the console, at /scan) parses per
+    // surface and never covered this one, so every scan POST arrived with no
+    // body. Guarded, because a mounted app does not own the request body: when
+    // the body was already read — the standalone app's own parser (req._body), or
+    // epistery's Bot capture in the host (req.rawBody, no _body marker) — reading
+    // it again throws "stream is not readable" on every Bot + JSON request.
+    const json = express.json({ limit: '100mb' });
+    const form = express.urlencoded({ extended: true, limit: '100mb' });
+    router.use((req, res, next) => {
+      if (req._body === true || req.rawBody !== undefined) return next();
+      json(req, res, (err) => (err ? next(err) : form(req, res, next)));
+    });
+
     // Load epistery config early — used for OCI, chains, ingestion
     const episteryConfig = new Config();
     await episteryConfig.setPath('/');

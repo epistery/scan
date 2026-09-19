@@ -1,6 +1,7 @@
 import { computeTrustScore } from '../../lib/Posture.mjs';
 import { buildObjectDigest } from '../../lib/SchemaMaps.mjs';
 import { explorerUrl, shortAddress } from '../../lib/Explorers.mjs';
+import { verifySessionDeclaration } from '../../lib/SessionDeclaration.mjs';
 
 const IDENTITY_SCHEMA = 'https://epistery.com/schema/Identity';
 
@@ -71,6 +72,8 @@ export default class IdentityContractInterpreter {
       'function getSectionNames() view returns (string[])',
       'function getACL(string) view returns (tuple(address addr, string name, uint8 role, string meta)[])',
       'function getPublic(string, string) view returns (string)',
+      // the session-admin check a session declaration is verified against
+      'function authorized(string section, address who, uint8 minRole) view returns (bool)',
       // ── reads: shared across generations ────────────────────────────────
       'function getRivets() view returns (address[])',
       'function rivetNames(address) view returns (string)',
@@ -232,6 +235,13 @@ export default class IdentityContractInterpreter {
     // is what widens the list for someone who holds a private role.
     const declared = metadata.homeUrl ? await this._fetchHome(metadata.homeUrl) : null;
     metadata.sessions = this._mergeSessions(address, metadata, declared);
+    // A session's own declaration is vouched for by THIS contract, not by the
+    // host that served it: check each one against the chain (see
+    // lib/SessionDeclaration.mjs). Only sessions the chain holds are checked.
+    for (const s of metadata.sessions) {
+      if (!s.declaration || !s.onChain) continue;
+      s.declarationFacts = await verifySessionDeclaration({ contractAddress: address, session: s.id, declaration: s.declaration, contract });
+    }
 
     const now = new Date();
     // Where the domain shown for this entity came from. `contract` means the
@@ -407,7 +417,9 @@ export default class IdentityContractInterpreter {
         members: onChain ? onChain.members : (d.memberCount ?? null),
         onChain: !!onChain,
         url: this._sessionUrl(host, ownerName, address, d),
-        mcp: (host && d.kind) ? `https://${host}/p/${d.kind}/${address}/${id}/mcp` : null
+        mcp: (host && d.kind) ? `https://${host}/p/${d.kind}/${address}/${id}/mcp` : null,
+        // The session's own signed declaration, verbatim; verified in sync().
+        declaration: d.declaration || null
       });
     }
 

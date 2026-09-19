@@ -1,4 +1,6 @@
 import express from 'express';
+import { originFacts } from '../lib/Present.mjs';
+import { isVouched } from '../lib/SessionDeclaration.mjs';
 
 /**
  * DiscoveryHandler
@@ -35,6 +37,46 @@ export default class DiscoveryHandler {
         res.json({ domains: entities });
       } catch (error) {
         console.error('[discovery] Error listing:', error);
+        res.status(500).json({ error: error.message });
+      }
+    });
+
+    /**
+     * A session of an IdentityContract, as a publisher of its own: what it
+     * declares about itself, and the contract's word on that declaration.
+     * GET /api/discovery/session/:contract/:session
+     *
+     * The session is an inner page of its identity. Its host serves the page;
+     * its CONTRACT vouches for it — `vouched` is true only when the declaration
+     * is signed, current, and signed by an admin of the session per the chain.
+     * The payee a reader should use is the contract (`origin.address`).
+     */
+    router.get('/session/:contract/:session', async (req, res) => {
+      const { contract, session } = req.params;
+      if (!/^0x[0-9a-fA-F]{40}$/.test(contract) || !/^0x[0-9a-fA-F]{40}$/.test(session)) {
+        return res.status(400).json({ error: 'contract and session must be 0x addresses' });
+      }
+      try {
+        const entity = await this.db.collection('entities').findOne({
+          type: 'IdentityContract', address: new RegExp(`^${contract}$`, 'i')
+        });
+        if (!entity) return res.status(404).json({ error: 'identity not indexed' });
+        const m = entity.metadata || {};
+        const s = (m.sessions || []).find((x) => String(x.id).toLowerCase() === session.toLowerCase());
+        if (!s) return res.status(404).json({ error: 'session not declared by its host' });
+        const facts = s.declarationFacts || null;
+        res.json({
+          contract: entity.address,
+          host: m.namespace || null,
+          session: { id: s.id, kind: s.kind, name: s.name, title: s.title, url: s.url, defaultRole: s.defaultRole, onChain: s.onChain },
+          declaration: s.declaration || null,
+          facts,
+          vouched: isVouched(facts),
+          origin: originFacts(entity),
+          observed: entity._modified || null
+        });
+      } catch (error) {
+        console.error('[discovery] Error reading session:', error);
         res.status(500).json({ error: error.message });
       }
     });
