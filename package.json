@@ -1,7 +1,7 @@
 {
   "name": "epistery-scan",
-  "version": "2.3.0",
-  "description": "Epistery \u2014 Search the signed web. Indexes authored, cryptographically signed knowledge via the AI Discovery Standard.",
+  "version": "2.3.1",
+  "description": "Epistery — Search the signed web. Indexes authored, cryptographically signed knowledge via the AI Discovery Standard.",
   "license": "UNLICENSED",
   "author": "Michael Sprague",
   "type": "module",
