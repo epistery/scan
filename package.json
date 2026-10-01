@@ -1,7 +1,7 @@
 {
   "name": "epistery-scan",
   "version": "2.3.0",
-  "description": "Epistery — Search the signed web. Indexes authored, cryptographically signed knowledge via the AI Discovery Standard.",
+  "description": "Epistery \u2014 Search the signed web. Indexes authored, cryptographically signed knowledge via the AI Discovery Standard.",
   "license": "UNLICENSED",
   "author": "Michael Sprague",
   "type": "module",
@@ -9,7 +9,7 @@
   "scripts": {
     "start": "node index.mjs",
     "dev": "PROFILE=DEV PORT=5080 PORTSSL=5443 node index.mjs",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "node test/present.test.mjs"
   },
   "dependencies": {
     "@epistery/art": "github:epistery/epistery-art",
