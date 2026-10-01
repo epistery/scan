@@ -510,9 +510,12 @@ if (import.meta.url === (await import('url')).pathToFileURL(process.argv[1]).hre
     app.use(harness.middleware());
   }
 
-  // Epistery middleware — every visitor gets a device wallet
+  // Epistery middleware — every visitor gets a device wallet. Scan answers
+  // for every name under [scan] domains, each its own identity (the signer
+  // that signs that name's responses), so it is the one host that asks core
+  // for the per-request domain switch.
   const epistery = await Epistery.connect();
-  await epistery.attach(app);
+  await epistery.attach(app, undefined, { domains: 'request' });
   app.locals.epistery = epistery;
 
   // Robots.txt — steer bots to /api and /.well-known/ai
