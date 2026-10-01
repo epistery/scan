@@ -1,4 +1,4 @@
-import { computeTrustScore } from '../../lib/Posture.mjs';
+
 import { buildObjectDigest } from '../../lib/SchemaMaps.mjs';
 import { explorerUrl, shortAddress } from '../../lib/Explorers.mjs';
 import { verifySessionDeclaration } from '../../lib/SessionDeclaration.mjs';
@@ -269,7 +269,6 @@ export default class IdentityContractInterpreter {
       ? { present: true, at: now, domain: metadata.domain, source: 'contract' }
       : { present: false, at: now, reason: 'the contract declares no domain of its own' };
     metadata.signals = signals;
-    metadata.trustScore = computeTrustScore(signals);
     // Where the displayed domain came from. `attachment` is a fact the contract
     // states and the domain signed. `namespace` is our own directory row — where a
     // name was registered, not something the identity declared. Search renders one

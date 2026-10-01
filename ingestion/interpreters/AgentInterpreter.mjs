@@ -1,4 +1,4 @@
-import { computeTrustScore } from '../../lib/Posture.mjs';
+
 import { buildObjectDigest } from '../../lib/SchemaMaps.mjs';
 import { explorerUrl, shortAddress } from '../../lib/Explorers.mjs';
 
@@ -135,7 +135,6 @@ export default class AgentInterpreter {
       }
 
       metadata.signals = signals;
-      metadata.trustScore = computeTrustScore(signals);
       metadata.identityLinks = identityLinks;
 
       // Object digest — domain agents join the unified card/search path.
@@ -168,7 +167,7 @@ export default class AgentInterpreter {
         metadata
       });
 
-      console.log(`[interpreter:agent] Synced ${address} on ${chain} (trust: ${metadata.trustScore})`, metadata);
+      console.log(`[interpreter:agent] Synced ${address} on ${chain}`, metadata);
       return entity;
     } catch (error) {
       console.error(`[interpreter:agent] Failed to sync ${address}:`, error.message);

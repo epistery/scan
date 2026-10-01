@@ -1,7 +1,7 @@
 import express from 'express';
 import { ethers } from 'ethers';
-import { summarizeSignals, trustLabel } from '../lib/Posture.mjs';
-import { toPresentAi, presentForLiveResult, stampOriginClaims } from '../lib/Present.mjs';
+import { summarizeSignals } from '../lib/Posture.mjs';
+import { toPresentAi, presentForLiveResult, stampOriginClaims, rungFromSignals } from '../lib/Present.mjs';
 import { mapFor, projectCard } from '../lib/SchemaMaps.mjs';
 
 const ERC20_ABI = ['function balanceOf(address) view returns (uint256)'];
@@ -606,7 +606,6 @@ export default class SearchHandler {
     if (entity.type === 'Object') {
       const src = entity.metadata?.source || {};
       const obj = entity.metadata?.object || {};
-      const trustScore = src.trustScore || 0;
       // Card projected at read time from the public schema map, so a map edit
       // reaches every result without a re-import. Null for pre-schema entities
       // (they enrich on their next import) — the UI falls back to summary.
@@ -626,8 +625,6 @@ export default class SearchHandler {
         source: src.name || src.domain || 'signed-web',
         sourceLabel: src.label || null,
         author: src.author || null,
-        trustScore,
-        trustLabel: trustLabel(trustScore),
         discoveryMethod: 'import',
         lastChecked: entity._modified || entity._created,
         // Fixed agent-facing contract (loose data, rigid envelope). See lib/Present.mjs.
@@ -640,16 +637,6 @@ export default class SearchHandler {
     const sig = entity.metadata?.verification || entity.metadata?.signature || {};
     const isDiscovery = entity.type === 'AIDiscovery';
     const app = entity.metadata?.app || null;
-
-    // Trust score: use stored value or derive from old verification fields
-    let trustScore = entity.metadata?.trustScore;
-    if (trustScore == null) {
-      // Fallback for entities that haven't been re-crawled yet
-      trustScore = 0;
-      if (sig.signed || sig.hashValid) trustScore += 25;    // selfSigned + manifest
-      if (sig.hashValid) trustScore += 10;                   // hashValid
-      if (sig.digitalNameMatch) trustScore += 20;            // contractExists
-    }
 
     // Contract-backed types that adopted the object digest (campaign, identity,
     // agent) join the unified card path: same read-time map projection as
@@ -696,9 +683,9 @@ export default class SearchHandler {
       })),
       capabilities: manifest?.capabilities || null,
 
-      // Trust — new signal-based scoring
-      trustScore,
-      trustLabel: trustLabel(trustScore),
+      // Standing — the signals, and the rung they prove (the same derivation
+      // Present.mjs makes; no score, no label).
+      rung: rungFromSignals(entity.metadata?.signals),
       signals: summarizeSignals(entity.metadata?.signals),
       identityLinks: entity.metadata?.identityLinks || [],
 
@@ -784,17 +771,23 @@ export default class SearchHandler {
         { $project: { count: { $size: { $ifNull: ['$metadata.manifest.coreConcepts', []] } } } },
         { $group: { _id: null, total: { $sum: '$count' } } }
       ]).toArray().then(r => r[0]?.total || 0),
-      // Trust score distribution across thresholds
+      // Standing distribution: the rung each domain's signals prove (Present.mjs
+      // rungFromSignals, expressed for Mongo).
       this.db.collection('entities').aggregate([
         { $match: { type: 'AIDiscovery' } },
+        { $project: {
+          contract: { $eq: ['$metadata.signals.contractExists.present', true] },
+          binding: { $eq: ['$metadata.signals.domainBinding.present', true] },
+          dns: { $eq: ['$metadata.signals.dnsVerified.present', true] },
+          signed: { $eq: ['$metadata.signals.selfSigned.present', true] },
+        } },
         { $group: {
           _id: {
             $switch: {
               branches: [
-                { case: { $gte: ['$metadata.trustScore', 75] }, then: 'verified' },
-                { case: { $gte: ['$metadata.trustScore', 50] }, then: 'trusted' },
-                { case: { $gte: ['$metadata.trustScore', 25] }, then: 'claimed' },
-                { case: { $gte: ['$metadata.trustScore', 1] },  then: 'discovered' }
+                { case: { $and: ['$contract', '$binding'] }, then: 'chain-bound' },
+                { case: { $or: ['$dns', '$binding'] }, then: 'dns' },
+                { case: '$signed', then: 'claimed' },
               ],
               default: 'open'
             }
@@ -802,7 +795,7 @@ export default class SearchHandler {
           count: { $sum: 1 }
         }}
       ]).toArray().then(rows => {
-        const dist = { open: 0, discovered: 0, claimed: 0, trusted: 0, verified: 0 };
+        const dist = { open: 0, claimed: 0, dns: 0, 'chain-bound': 0 };
         for (const r of rows) dist[r._id] = r.count;
         return dist;
       }),
@@ -1048,8 +1041,7 @@ export default class SearchHandler {
       tokens: chainData.tokens,
       contractMeta: chainData.contractMeta,
 
-      trustScore: 0,
-      trustLabel: 'open',
+      rung: 'open',
       signals: {},
       identityLinks: [],
       signature: { signed: false, verified: false, digitalName: null, method: null },
@@ -1184,8 +1176,7 @@ export default class SearchHandler {
           capabilityScore: Math.round(match.score * 100),
           endpoint: url,                 // directory handle: the agent can call this itself
           proxyData: data,               // surfaced as present.brokered (second-class)
-          trustScore: match.entity.metadata?.trustScore || 0,
-          trustLabel: trustLabel(match.entity.metadata?.trustScore || 0),
+          rung: rungFromSignals(match.entity.metadata?.signals),
           source: domain,
           discoveryMethod: 'capability-proxy',
           lastChecked: new Date(),
@@ -1257,15 +1248,11 @@ export default class SearchHandler {
       const ds = match.ds;
       const manifest = ds.skillManifest || {};
 
-      // Look up trust score from the domain's AIDiscovery entity
-      let trustScore = 0;
+      // The source's standing: the rung its own discovery entity's signals prove.
+      let rung = 'open';
       try {
-        const entity = await this.db.collection('entities').findOne({
-          address: ds.domain, type: 'AIDiscovery'
-        });
-        if (entity?.metadata?.trustScore != null) {
-          trustScore = entity.metadata.trustScore;
-        }
+        const entity = await this.db.collection('entities').findOne({ address: ds.domain, type: 'AIDiscovery' });
+        if (entity?.metadata?.signals) rung = rungFromSignals(entity.metadata.signals);
       } catch { /* no entity yet */ }
 
       // Build endpoint lookup from api_endpoints for tools that lack path/method
@@ -1293,8 +1280,7 @@ export default class SearchHandler {
         topics: ds.topics,
         tools,
         topicScore: Math.round(match.score * 100),
-        trustScore,
-        trustLabel: trustLabel(trustScore),
+        rung,
         source: 'skill-registry',
         discoveryMethod: 'config',
         lastChecked: new Date()

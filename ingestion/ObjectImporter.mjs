@@ -12,7 +12,7 @@ import { mapFor, projectSearch, projectCard } from '../lib/SchemaMaps.mjs';
  * Normalized object (one entity per source object):
  *   address: "<source>:<objectId>"          — source stays visible in the key
  *   type:    "Object"
- *   metadata.source: { name, label, domain, url, author, trustScore, importedAt }
+ *   metadata.source: { name, label, domain, url, author, importedAt }
  *   metadata.object: { type, title, summary, keywords }   — normalized, indexed
  *   metadata.fields: <raw author object>                  — author's intent, verbatim
  *
@@ -36,19 +36,6 @@ export default class ObjectImporter {
     return sources
       .map(ds => ({ ds, engine: engineFor(ds.name, ds.skillManifest) }))
       .filter(x => x.engine);
-  }
-
-  /**
-   * Look up the trust score the source domain earned via normal AI discovery,
-   * so every object inherits its source's signed posture. One lookup per source.
-   */
-  async _sourceTrust(domain) {
-    try {
-      const entity = await this.database.getEntity(domain);
-      return entity?.metadata?.trustScore ?? 0;
-    } catch {
-      return 0;
-    }
   }
 
   /**
@@ -85,7 +72,6 @@ export default class ObjectImporter {
           domain: ds.domain,
           url: jsonld.url || `https://${ds.domain}`,
           author: sourceMeta.author,
-          trustScore: sourceMeta.trustScore,
           importedAt: new Date()
         },
         object: {
@@ -110,11 +96,12 @@ export default class ObjectImporter {
     const fetchJSON = this.domainDiscovery.fetchJSON.bind(this.domainDiscovery);
     const limit = engine.pageSize || 500;
 
-    // Author + trust come from the source's signed manifest / discovery entity.
+    // The author comes from the source's signed manifest. Its standing is read
+    // from the source's own discovery entity at presentation (Present.mjs rung),
+    // never copied onto each object as a score.
     const manifest = ds.skillManifest || {};
     const author = manifest._signature?.digitalName || manifest.signing?.address || null;
-    const trustScore = await this._sourceTrust(ds.domain);
-    const sourceMeta = { author, trustScore };
+    const sourceMeta = { author };
 
     let offset = 0;
     let total = Infinity;

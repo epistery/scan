@@ -99,9 +99,6 @@ export default class Database {
     await this.transactions.createIndex({ blockNumber: -1 });
     await this.transactions.createIndex({ timestamp: -1 });
 
-    // Trust score index for posture queries
-    await this.entities.createIndex({ 'metadata.trustScore': 1 });
-
     // Capability index for query routing
     await this.entities.createIndex({ 'metadata.capabilities.keywords': 1 });
 

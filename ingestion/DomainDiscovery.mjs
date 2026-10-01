@@ -1,8 +1,7 @@
-import crypto from 'crypto';
 import dns from 'dns';
 import { Config } from 'epistery';
 import { ethers } from 'ethers';
-import { computeTrustScore } from '../lib/Posture.mjs';
+import { verifyManifest, contentHash as manifestContentHash } from '@epistery/client-lib/manifest';
 
 const dnsResolver = new dns.promises.Resolver();
 
@@ -513,7 +512,6 @@ export default class DomainDiscovery {
 
     // Collect trust signals
     const signals = await this.collectSignals(domain, manifest, txtVerification, discoveryMethod);
-    const trustScore = computeTrustScore(signals);
 
     // Backward-compatible verification object
     const sig = manifest._signature || {};
@@ -579,7 +577,6 @@ export default class DomainDiscovery {
         tiers,
         verification,
         signals,
-        trustScore,
         identityLinks,
         capabilities: extractedCapabilities.length > 0 ? extractedCapabilities : undefined,
         discoveryMethod,
@@ -624,14 +621,13 @@ export default class DomainDiscovery {
         capabilities: Object.keys(capabilities),
         tiersFound: Object.keys(tiers),
         signatureValid: verification.hashValid,
-        trustScore,
         discoveryMethod,
         manifestUrl,
         txtVerified: txtVerification.hasTxtRecord
       }
     });
 
-    console.log(`[discovery] ${domain}: ${isNew ? 'indexed' : 'updated'} via ${discoveryMethod} (trust: ${trustScore}, tiers: ${Object.keys(tiers).join(', ')})`);
+    console.log(`[discovery] ${domain}: ${isNew ? 'indexed' : 'updated'} via ${discoveryMethod} (signals: ${Object.entries(signals).filter(([, v]) => v?.present).map(([k]) => k).join(',') || 'none'}; tiers: ${Object.keys(tiers).join(', ')})`);
 
     return { entity, manifest };
   }
@@ -728,19 +724,6 @@ export default class DomainDiscovery {
     }
   }
 
-  /**
-   * Deep sort keys recursively for canonical JSON form
-   */
-  sortKeys(obj) {
-    if (Array.isArray(obj)) return obj.map(item => this.sortKeys(item));
-    if (obj && typeof obj === 'object') {
-      return Object.keys(obj).sort().reduce((sorted, key) => {
-        sorted[key] = this.sortKeys(obj[key]);
-        return sorted;
-      }, {});
-    }
-    return obj;
-  }
 
   /**
    * Verify the _signature block of a manifest (backward compat)
@@ -783,15 +766,12 @@ export default class DomainDiscovery {
     // is reported as unsigned rather than accused of forgery.
     signals.selfSigned = await this._verifyManifestSignature(domain, manifest, now);
 
-    // hashValid — SHA-256 with `generated` stripped before hashing
+    // hashValid — the published construction: `_signature` and `generated`
+    // stripped, keys sorted, SHA-256 (client-lib manifest, the same module the
+    // publisher signs with).
     try {
-      const clone = JSON.parse(JSON.stringify(manifest));
-      delete clone._signature;
-      delete clone.generated;   // defensive: strip volatile timestamp
-
-      const canonical = JSON.stringify(this.sortKeys(clone));
-      const hash = crypto.createHash('sha256').update(canonical).digest('hex');
-      const expected = (sig.contentHash || '').replace(/^sha256:/, '');
+      const hash = await manifestContentHash(manifest);
+      const expected = String(sig.contentHash || '');
       signals.hashValid = { present: hash === expected, at: now, computed: hash, expected };
     } catch (e) {
       signals.hashValid = { present: false, at: now, error: e.message };
@@ -857,56 +837,24 @@ export default class DomainDiscovery {
    * Did this domain actually sign its own manifest?
    *
    * Rebuilds the bytes the manifest states it signed and recovers the signer,
-   * using the construction from the epistery package — one owner, because a
-   * publisher and a verifier holding separate copies of it will eventually
-   * disagree and the disagreement will read as forgery.
+   * using the construction from @epistery/client-lib/manifest — the module the
+   * publisher signs with.
    *
    * A v1 manifest carries a content hash and a claimed address and NO signature.
    * That is unsigned, not forged, and it is reported as unsigned: the two must stay
    * distinguishable or every honest older domain looks like an attacker.
    */
   async _verifyManifestSignature(domain, manifest, now) {
-    const sig = manifest?._signature || {};
-    if (!sig.digitalName) return { present: false, at: now, reason: 'no _signature block' };
-    if (!sig.signature) {
-      return {
-        present: false, at: now, digitalName: sig.digitalName, method: sig.method || null,
-        reason: 'names an address but carries no signature (v1)',
-      };
-    }
-    try {
-      // Rebuild the bytes the manifest states it signed, and recover.
-      //
-      // The construction is the published one: the tag, the version, the domain and
-      // the content hash, joined by newlines — a manifest states it in `signedOver`
-      // so a verifier never guesses. The hash is this document with `_signature` and
-      // `generated` removed and every key sorted, which is the same canonical form
-      // collectSignals already computes for hashValid.
-      //
-      // Verified here rather than imported, because scan is the verifier of a
-      // PUBLISHED format and must check manifests from domains that run none of our
-      // code. If the construction ever moves into the epistery package, this should
-      // import it instead — one owner beats two copies that can drift.
-      const clone = JSON.parse(JSON.stringify(manifest));
-      delete clone._signature;
-      delete clone.generated;
-      const hash = 'sha256:' + crypto.createHash('sha256')
-        .update(JSON.stringify(this.sortKeys(clone))).digest('hex');
-      if (hash !== sig.contentHash) {
-        return { present: false, at: now, reason: `content hash mismatch (computed ${hash})` };
-      }
-      const message = ['epistery-domain-manifest', '1', String(domain).toLowerCase(), hash].join('\n');
-      // ethers v6 here (v5 keeps verifyMessage on .utils).
-      const recover = ethers.verifyMessage ?? ethers.utils?.verifyMessage;
-      const signer = recover(message, sig.signature);
-      const matches = signer.toLowerCase() === String(sig.digitalName).toLowerCase();
-      return {
-        present: matches, at: now, digitalName: sig.digitalName, method: sig.method || null,
-        ...(matches ? { signer } : { reason: `signed by ${signer}, not the declared ${sig.digitalName}` }),
-      };
-    } catch (e) {
-      return { present: false, at: now, reason: `verification failed: ${e.message}` };
-    }
+    // The construction is the published one, imported from the same module the
+    // publisher signs with (@epistery/client-lib/manifest) — one owner, because a
+    // publisher and a verifier holding separate copies will eventually disagree
+    // and the disagreement will read as forgery. ethers v6 here: recovery injected.
+    const v = await verifyManifest({ ...manifest, identity: { ...(manifest?.identity || {}), domain: manifest?.identity?.domain || domain } }, ethers.verifyMessage);
+    if (!v.signed) return { present: false, at: now, ...(v.digitalName ? { digitalName: v.digitalName, method: v.method } : {}), reason: v.reason };
+    return {
+      present: v.ok, at: now, digitalName: v.digitalName, method: v.method,
+      ...(v.ok ? { signer: v.signer } : { reason: v.reason }),
+    };
   }
 
   /**
