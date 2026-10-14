@@ -460,3 +460,21 @@ The dev/prod toggle is driven entirely by whether `[profile] email` is set in co
 ## License
 
 UNLICENSED - Proprietary
+
+
+## Rootz Receipts
+
+Scan verifies origin receipts for AI agent work ([receipts.rootz.global](https://receipts.rootz.global/llms.txt)) with
+the **public Rootz verifier**, vendored byte-for-byte in `vendor/rootz-receipts-verifier.js` and pinned by SHA-256 in
+`lib/Receipts.mjs` (build `cccedb8`). Facts, not verdicts: Scan reports what that verifier said about each of the
+receipt's five lines (Authorized by, Specification, Materials, Process, Integrity), their depth, and which build said it.
+
+- `POST /api/receipts/verify` `{ receipt, answer_b64?, request_b64? }`
+- `GET /api/receipts/resolve?resolver=<https://…/.well-known/origin-receipts/>&hash=sha256:<base64url>`: find receipts
+  from the answer alone (the answer's `Origin-Receipt` header names the resolver). The resolver is not trusted; only
+  receipts committing to that hash are kept.
+- `GET /api/receipts/verifier`: the build Scan runs.
+
+A receipt signed with a type the vendored build does not check (today: RSA keys) reads
+**not-checked** with the reason in `beyond_this_build`, never *failed*. To update, replace the bundle and its pin
+together.

@@ -12,6 +12,7 @@ import SearchHandler from './handlers/Search.mjs';
 import MonitorHandler from './handlers/Monitor.mjs';
 import EventHandler from './handlers/Event.mjs';
 import FetchHandler from './handlers/Fetch.mjs';
+import ReceiptsHandler from './handlers/Receipts.mjs';
 import DiscoveryHandler from './handlers/Discovery.mjs';
 import FeedHandler from './handlers/Feed.mjs';
 import StandingHandler from './handlers/Standing.mjs';
@@ -235,6 +236,7 @@ export default class EpisteryScan {
     router.use('/api/feed', feedHandler.routes());
     router.use('/api/standing', standingHandler.routes());
     router.use('/api/mcp', mcpProxy.routes());
+    router.use('/api/receipts', new ReceiptsHandler().routes());
 
     // Public category maps — how each declared schema is structured for
     // search, display, and trust factors. Sources declare which schemas they
