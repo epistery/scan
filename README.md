@@ -178,11 +178,14 @@ All endpoints return JSON. No authentication required for read operations.
 | `/api/search/submit` | POST | Submit domain for indexing `{ domain }` |
 | `/api/skill/:name/call` | GET | Proxy a tool call to a registered data source skill |
 
-Query types:
-- **`0x...` address** — direct blockchain lookup
-- **`domain.name`** — direct MongoDB lookup, triggers discovery if unknown
-- **`keyword`** — full-text search across signed-web manifests + fan-out to mcp-registry
-- **`@service-name query`** — explicit delegation to a live MCP service endpoint
+Scan reports on entities with a known origin; it is not a general web search. A free-form query is read for the entities it names (`search/Intent.mjs` — an address, domain, URL or email anywhere in the text) and each kind is answered by its handler (`search/index.mjs`, in order):
+
+- **`@service-name query`** — delegation to a live MCP service (only with a harness child)
+- **`0x...` address** — indexed entities under the address + a live read on each configured chain
+- **domain / URL / email** — a **domain report** (`search/DomainReport.mjs`): the index's entities and crawl record for the host (`HostIndex`, with a bounded discovery run when unindexed), its `/.well-known/ai` and `/.well-known/epistery` (host wallet checked against the domain contract's), DNS (`_ai` TXT, MX, SPF, DMARC, CAA, NS) and TLS certificate — facts with a time, in `present.facets`; then the indexed entities on the host, its parent and subdomains as themselves (related, never inherited)
+- **words** — text search over declared content, skill orientation, capability routing, regex fallback
+
+Nothing matched → `meta.guide`: what scan is and each searchable kind, with a live example from the index (`search/Guide.mjs`). A new kind of search is one new handler in `search/index.mjs`.
 
 ### Monitors
 
@@ -434,6 +437,10 @@ The dev/prod toggle is driven entirely by whether `[profile] email` is set in co
 | `ingestion/interpreters/*.mjs` | One interpreter per entity type |
 | `ingestion/interpreters/DataSourceInterpreter.mjs` | Skill manifest interpreter for configured data sources |
 | `handlers/Search.mjs` | Federated search with skill orientation and @service delegation |
+| `search/Intent.mjs` | Reads a free-form query for the entities it names |
+| `search/index.mjs` | The query handlers, in order (Service, Address, Domain, Text) |
+| `search/DomainReport.mjs` | A domain's report: `HostIndex` + `probes/` (dns, tls, episteryHost) |
+| `search/Guide.mjs` | The empty-result answer: what can be searched, with live examples |
 | `handlers/Monitor.mjs` | Monitor CRUD, type validation against registry |
 | `handlers/Event.mjs` | Event queries, aggregation, timeline |
 | `handlers/Discovery.mjs` | Domain submission and listing |

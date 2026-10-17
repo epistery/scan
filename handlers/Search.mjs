@@ -3,6 +3,10 @@ import { ethers } from 'ethers';
 import { summarizeSignals } from '../lib/Posture.mjs';
 import { toPresentAi, presentForLiveResult, stampOriginClaims, rungFromSignals } from '../lib/Present.mjs';
 import { mapFor, projectCard } from '../lib/SchemaMaps.mjs';
+import DomainReport from '../search/DomainReport.mjs';
+import { readQuery } from '../search/Intent.mjs';
+import { QUERY_HANDLERS } from '../search/index.mjs';
+import { guideFor } from '../search/Guide.mjs';
 
 const ERC20_ABI = ['function balanceOf(address) view returns (uint256)'];
 const EPISTERY_ABI = [
@@ -106,6 +110,10 @@ const NATIVE_CURRENCY = {
  * For text queries: Full-text search across indexed manifests (org name, concepts, apps)
  * For domains: Direct lookup + on-demand discovery if not yet indexed
  * For addresses: Chain lookup (secondary, for trust verification)
+ *
+ * Free-form queries are read for the entities they name (search/Intent.mjs) and
+ * answered by one handler per kind (search/index.mjs). Nothing matched = the
+ * guide: what scan is, and what can be searched for (search/Guide.mjs).
  */
 export default class SearchHandler {
   constructor(connector, harness) {
@@ -113,10 +121,12 @@ export default class SearchHandler {
     this.db = connector.db;
     this.harness = harness || null;
     this.ingestion = null;
+    this.reports = new DomainReport(this.db, null);
   }
 
   setIngestion(ingestion) {
     this.ingestion = ingestion;
+    this.reports = new DomainReport(this.db, ingestion?.domainDiscovery);
   }
 
   routes() {
@@ -258,177 +268,25 @@ export default class SearchHandler {
   }
 
   /**
-   * Search — knowledge first, chain second, federated across harness children.
-   * Queries starting with @service-name delegate to a live MCP service.
+   * Search — read the query for what it names, let each handler report on
+   * its targets, and answer an empty result with the guide.
    */
   async search(query, limit = 20) {
-    const q = query.trim();
-
-    // Explicit MCP delegation: @service-name <query>
-    const delegateMatch = q.match(/^@(\S+)\s*(.*)/);
-    if (delegateMatch && this.harness) {
-      return this._delegateToService(delegateMatch[1], delegateMatch[2].trim(), limit);
-    }
+    const intent = readQuery(query);
     const results = {
-      query: q,
+      query: intent.raw,
       results: [],
       meta: { total: 0, sources: ['signed-web'] }
     };
-
-    // Fire federated query in parallel (non-blocking until we need it)
-    const childPromise = this.harness
-      ? this.harness.query(`/api/search?q=${encodeURIComponent(q)}&limit=${limit}`)
-      : Promise.resolve([]);
-
-    // Blockchain address — direct chain lookup + reverse identity search
-    if (/^0x[a-f0-9]{40}$/i.test(q)) {
-      const addrRegex = new RegExp(`^${q}$`, 'i');
-      const entities = await this.db.collection('entities').find({
-        $or: [
-          { address: addrRegex },
-          { 'metadata.owner': addrRegex },
-          { 'metadata.host': addrRegex },
-          { 'metadata.verification.digitalName': addrRegex },
-          { 'metadata.manifest._signature.digitalName': addrRegex },
-          { 'metadata.identityLinks.address': addrRegex },
-          { 'metadata.app.owner': addrRegex }
-        ]
-      }).limit(20).toArray();
-
-      if (entities.length > 0) {
-        results.results = await this._formatEntities(entities);
-        results.meta.total = entities.length;
+    for (const handler of QUERY_HANDLERS) {
+      for (const target of handler.targets(intent, this)) {
+        await handler.run(target, this, results, limit);
       }
-
-      // Chains already answered by a stored entity for this exact address —
-      // the indexed row (campaign, identity, …) IS that chain's result; a
-      // second live-RPC row for the same contract is a duplicate.
-      const coveredChains = new Set(
-        entities.filter(e => addrRegex.test(e.address) && e.chain).map(e => e.chain)
-      );
-
-      // Live chain query — runs in parallel across all configured chains
-      if (this.ingestion?.connectors) {
-        try {
-          const chainResults = (await this.queryChainForAddress(q))
-            .filter(cr => !coveredChains.has(cr.chain));
-          for (const cr of chainResults) {
-            results.results.push(this.formatWalletResult(q, cr));
-          }
-          if (chainResults.length > 0) {
-            results.meta.total = results.results.length;
-            results.meta.sources.push('live-rpc');
-            // Background index for future lookups
-            this._backgroundIndexAddress(q, chainResults).catch(e =>
-              console.warn('[search] Background index failed:', e.message)
-            );
-          }
-        } catch (err) {
-          console.warn('[search] Chain query failed:', err.message);
-        }
-      }
-
-      return results;
     }
-
-    // Domain-like query — direct lookup + trigger discovery if unknown
-    if (q.includes('.') && !q.includes(' ')) {
-      const domain = q.toLowerCase();
-      const entity = await this.db.collection('entities').findOne({
-        address: domain, type: 'AIDiscovery'
-      });
-
-      if (entity) {
-        results.results.push(...(await this._formatEntities([entity])));
-        results.meta.total = 1;
-      } else if (this.ingestion?.domainDiscovery) {
-        // Not indexed yet — trigger discovery in background
-        this.ingestion.domainDiscovery.checkDomain(domain).catch(console.error);
-        results.meta.discovering = domain;
-        results.meta.message = `Checking ${domain} for /.well-known/ai manifest...`;
-      }
-      return results;
-    }
-
-    // Text search — full-text across indexed manifests
-    try {
-      const textResults = await this.db.collection('entities')
-        .find(
-          { $text: { $search: q } },
-          { score: { $meta: 'textScore' } }
-        )
-        .sort({ score: { $meta: 'textScore' } })
-        .limit(limit)
-        .toArray();
-
-      if (textResults.length > 0) {
-        results.results = await this._formatEntities(textResults);
-        results.meta.total = textResults.length;
-      }
-    } catch (err) {
-      // Text index may not exist yet on empty DB — fall through to regex
-      console.warn('[search] Text search failed, falling back to regex:', err.message);
-    }
-
-    // Skill orientation — match query to registered data source skills
-    try {
-      const skills = await this._orientToSkills(q, limit);
-      if (skills.length > 0) {
-        results.results.push(...skills);
-        results.meta.sources.push('skill-registry');
-      }
-    } catch (err) {
-      console.warn('[search] Skill orientation failed:', err.message);
-    }
-
-    // Capability-based routing — check if any indexed source can handle this query live
+    results.meta.total = results.results.length;
     if (results.results.length === 0) {
-      try {
-        const capResults = await this._queryCapableSources(q, limit);
-        if (capResults.length > 0) {
-          results.results = capResults;
-          results.meta.total = capResults.length;
-          results.meta.sources.push('capability-proxy');
-        }
-      } catch (err) {
-        console.warn('[search] Capability routing failed:', err.message);
-      }
+      results.meta.guide = await guideFor(intent.raw, QUERY_HANDLERS, this);
     }
-
-    // Fallback — regex search if text search yielded nothing
-    if (results.results.length === 0) {
-      const searchRegex = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
-      const entities = await this.db.collection('entities')
-        .find({
-          $or: [
-            { address: searchRegex },
-            { 'metadata.manifest.organization.name': searchRegex },
-            { 'metadata.manifest.organization.mission': searchRegex },
-            { 'metadata.manifest.coreConcepts.term': searchRegex },
-            { 'metadata.manifest.applications.name': searchRegex },
-            { 'metadata.manifest.people.name': searchRegex },
-            { 'metadata.domain': searchRegex },
-            { 'metadata.app.name': searchRegex },
-            { 'metadata.app.domain': searchRegex },
-            { 'metadata.app.sessions.name': searchRegex }
-          ]
-        })
-        .sort({ _modified: -1 })
-        .limit(limit)
-        .toArray();
-
-      results.results = await this._formatEntities(entities);
-      results.meta.total = entities.length;
-    }
-
-    // Merge federated results from harness children
-    try {
-      const childResponses = await childPromise;
-      this._mergeChildResults(results, childResponses, limit);
-    } catch (err) {
-      console.warn('[search] Federated query failed:', err.message);
-    }
-
     return results;
   }
 
