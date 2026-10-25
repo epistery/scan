@@ -639,6 +639,16 @@ export default class DomainDiscovery {
   async checkDomain(domain) {
     console.log(`[discovery] Checking ${domain}...`);
 
+    // A domain policy has marked not-listable — its own VISIBILITY directive, or
+    // it has not resolved for the grace window (ingestion/DomainPolicy.mjs). Do
+    // not crawl or re-index it, and make sure no earlier result lingers. The
+    // policy owns relisting; when it clears the flag the next crawl proceeds.
+    const record = await this.database.getDomain(domain);
+    if (record && record.listable === false) {
+      await this.database.removeEntity(domain);
+      return null;
+    }
+
     const now = new Date();
     const nextCheck = new Date(now.getTime() + this.pollInterval);
 

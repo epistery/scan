@@ -7,6 +7,7 @@ import AIDiscoveryInterpreter from './interpreters/AIDiscoveryInterpreter.mjs';
 import DataSourceInterpreter from './interpreters/DataSourceInterpreter.mjs';
 import AppDirectory from './AppDirectory.mjs';
 import ObjectImporter from './ObjectImporter.mjs';
+import DomainPolicy from './DomainPolicy.mjs';
 
 /**
  * IngestionManager
@@ -25,6 +26,7 @@ export default class IngestionManager {
     this.domainDiscovery = null;
     this.appDirectory = null;
     this.objectImporter = null;
+    this.domainPolicy = null;
   }
 
   /**
@@ -71,6 +73,16 @@ export default class IngestionManager {
     // object into the global signed-object index (see ObjectImporter.mjs).
     this.objectImporter = new ObjectImporter(this.database, this.domainDiscovery, {
       pollInterval: this.config.objectImportInterval || 21600000
+    });
+
+    // Domain policy — reads each domain's own listability (its DomainContract's
+    // VISIBILITY directive) and its DNS liveness, and delists a domain that asked
+    // not to be found or that has gone dark. Reads DomainContracts through the
+    // chain connectors (one owner of chain access). See DomainPolicy.mjs.
+    this.domainPolicy = new DomainPolicy(this.database, this.connectors, {
+      chain: this.config.domainPolicy?.chain,
+      graceMs: this.config.domainPolicy?.graceMs,
+      pollInterval: this.config.domainPolicy?.pollInterval
     });
 
     console.log(`[ingestion] Registered types: ${this.registry.list().join(', ')}`);
@@ -262,6 +274,9 @@ export default class IngestionManager {
 
     // Start periodic object import (initial run kicks off immediately)
     this.objectImporter?.start();
+
+    // Start the domain-listability + liveness sweep on its own timer
+    this.domainPolicy?.start();
   }
 
   /**
@@ -291,6 +306,7 @@ export default class IngestionManager {
     }
     this.appDirectory?.stop();
     this.objectImporter?.stop();
+    this.domainPolicy?.stop();
     console.log('[ingestion] Stopped polling');
   }
 

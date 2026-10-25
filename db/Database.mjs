@@ -115,6 +115,9 @@ export default class Database {
     await this.domains.createIndex({ domain: 1 }, { unique: true });
     await this.domains.createIndex({ active: 1 });
     await this.domains.createIndex({ lastChecked: 1 });
+    // Listability verdict written by ingestion/DomainPolicy.mjs; AppDirectory
+    // reads the not-listable set to drop identities under a dark domain.
+    await this.domains.createIndex({ listable: 1 });
 
     await this.normalizeAddressCase();
 
@@ -486,25 +489,66 @@ export default class Database {
    */
   async addDomain(domainRecord) {
     const now = new Date();
-    const doc = {
-      domain: domainRecord.domain,
-      active: domainRecord.active !== false,
-      discoveredFrom: domainRecord.discoveredFrom || null,
-      discoveryMethod: domainRecord.discoveryMethod || null,
-      status: domainRecord.status || 'pending',
-      lastChecked: domainRecord.lastChecked || null,
-      nextCheck: domainRecord.nextCheck || now,
-      _created: now,
-      _modified: now
-    };
 
-    await this.domains.replaceOne(
+    // Merge, don't replace. This method is called on every crawl, and a domain
+    // row now also carries listability/liveness policy written by a separate
+    // owner (see ingestion/DomainPolicy.mjs). A replaceOne here wiped those
+    // fields on every poll; a merge-upsert preserves whatever this call does not
+    // set. Defaults apply ONLY on insert, and only to fields the caller omitted
+    // (a field can't be in both $set and $setOnInsert).
+    const set = { _modified: now };
+    for (const [k, v] of Object.entries(domainRecord)) {
+      if (k === 'domain' || v === undefined) continue;
+      set[k] = v;
+    }
+    const defaults = {
+      domain: domainRecord.domain,
+      active: true,
+      status: 'pending',
+      nextCheck: now,
+      discoveredFrom: null,
+      discoveryMethod: null,
+      _created: now
+    };
+    const setOnInsert = {};
+    for (const [k, v] of Object.entries(defaults)) if (!(k in set)) setOnInsert[k] = v;
+
+    await this.domains.updateOne(
       { domain: domainRecord.domain },
-      doc,
+      { $set: set, $setOnInsert: setOnInsert },
       { upsert: true }
     );
 
-    return doc;
+    return await this.domains.findOne({ domain: domainRecord.domain });
+  }
+
+  /**
+   * Write the listability/liveness verdict for a domain (ingestion/DomainPolicy).
+   * Separate from addDomain so policy can annotate a namespace that discovery
+   * never crawled: a row it creates is `active:false` (policy does not enlist a
+   * crawl, it only records the decision), while a crawl's own addDomain owns
+   * `active`.
+   */
+  async updateDomain(domain, fields) {
+    const now = new Date();
+    const set = { _modified: now };
+    for (const [k, v] of Object.entries(fields || {})) if (v !== undefined) set[k] = v;
+    await this.domains.updateOne(
+      { domain },
+      { $set: set, $setOnInsert: { domain, _created: now, active: false, status: 'policy', nextCheck: now } },
+      { upsert: true }
+    );
+  }
+
+  /** Every domain row — the policy sweep assesses them all, listed or not. */
+  async getAllDomains() {
+    return await this.domains.find({}).toArray();
+  }
+
+  /** Domains a policy has marked not-listable (visibility directive or stale). */
+  async getUnlistableDomains() {
+    const rows = await this.domains.find({ listable: false }, { projection: { domain: 1 } }).toArray();
+    return rows.map(r => String(r.domain).toLowerCase());
   }
 
   /**

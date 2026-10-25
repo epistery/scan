@@ -144,7 +144,17 @@ export default class EpisteryScan {
       // [authority] root=/scan) a fresh sync Config().setPath('/') there would
       // read empty. Threading them through avoids that — see DomainDiscovery.
       sources: episteryConfig.data.sources,
-      datasources: episteryConfig.data.datasources
+      datasources: episteryConfig.data.datasources,
+      // Hosts the operator has retired by hand — a domain that is publicly
+      // routable but should no longer be served (see ingestion/AppDirectory).
+      // Previously never threaded, so the config key was inert; carried now so
+      // the manual lever and the self-declared VISIBILITY directive compose.
+      retiredNamespaces: this.config.retiredNamespaces || episteryConfig.data.retiredNamespaces || [],
+      // Domain listability + liveness policy (ingestion/DomainPolicy.mjs): which
+      // chain carries DomainContracts, the stale-domain grace window, and the
+      // sweep cadence. All optional — the module's defaults (Polygon, 30d, 6h)
+      // apply when unset.
+      domainPolicy: episteryConfig.data.domainPolicy || this.config.domainPolicy || {}
     };
 
     // Which chains to ingest, and on what RPC. epistery's configuredChains()

@@ -96,6 +96,13 @@ export default class AppDirectory {
       return { indexed: 0 };
     }
 
+    // The set of domains a policy has marked not-listable — a domain's own
+    // VISIBILITY directive, or one that has not resolved for the grace window
+    // (see ingestion/DomainPolicy.mjs). Loaded once per pass so indexable()
+    // stays a synchronous check, and so the same decision retires the
+    // identities already written under a dark domain.
+    this._unlistable = new Set(await this.database.getUnlistableDomains().catch(() => []));
+
     let indexed = 0;
     let monitored = 0;
     let dropped = 0;
@@ -145,7 +152,13 @@ export default class AppDirectory {
    */
   indexable(namespace) {
     if (!isPublicNamespace(namespace)) return false;
-    return !this.retired.has(String(namespace).toLowerCase());
+    const host = String(namespace).toLowerCase();
+    if (this.retired.has(host)) return false;
+    // A domain that declared itself out (VISIBILITY) or has gone dark in DNS.
+    // The fact is the domain's own, read from its contract or its absence from
+    // DNS — not a list scan keeps "because we said so" (ingestion/DomainPolicy).
+    if (this._unlistable?.has(host)) return false;
+    return true;
   }
 
   /**
