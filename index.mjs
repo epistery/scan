@@ -447,7 +447,6 @@ if (import.meta.url === (await import('url')).pathToFileURL(process.argv[1]).hre
     https,
     { default: cookieParser },
     { default: cors },
-    { default: morgan },
     { Epistery },
     { Certify }
   ] = await Promise.all([
@@ -455,7 +454,6 @@ if (import.meta.url === (await import('url')).pathToFileURL(process.argv[1]).hre
     import('https'),
     import('cookie-parser'),
     import('cors'),
-    import('morgan'),
     import('epistery'),
     import('@metric-im/administrate')
   ]);
@@ -496,7 +494,6 @@ if (import.meta.url === (await import('url')).pathToFileURL(process.argv[1]).hre
     next();
   });
 
-  app.use(morgan('dev'));
   app.use(cors());
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));
