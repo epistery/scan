@@ -1,5 +1,5 @@
 {
-  "name": "epistery-scan",
+  "name": "@epistery/scan",
   "version": "2.4.0",
   "description": "Epistery — Search the signed web. Indexes authored, cryptographically signed knowledge via the AI Discovery Standard.",
   "license": "UNLICENSED",
