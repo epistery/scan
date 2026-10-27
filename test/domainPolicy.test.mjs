@@ -4,7 +4,7 @@
 // the pure decisions, tested without a DB, a chain, or a clock of their own.
 //
 //   node test/domainPolicy.test.mjs
-import { interpretVisibility, nextUnresolved, staleExpired } from '../ingestion/DomainPolicy.mjs';
+import { interpretVisibility, nextUnresolved, advanceClock, dnsState, reachState, staleExpired } from '../ingestion/DomainPolicy.mjs';
 
 let failures = 0;
 const check = (c, m) => c ? console.log('  ok  : ' + m) : (console.log('  FAIL: ' + m), failures++);
@@ -32,6 +32,23 @@ check(nextUnresolved(null, { resolves: false, error: null }, T1) === T1, 'a clea
 check(nextUnresolved(T0, { resolves: false, error: null }, T1) === T0, 'a continuing NXDOMAIN keeps the original start');
 check(nextUnresolved(T0, { resolves: false, error: 'ESERVFAIL' }, T1) === T0, 'a transient failure leaves a running clock untouched');
 check(nextUnresolved(null, { resolves: false, error: 'ETIMEOUT' }, T1) === null, 'a transient failure never starts the clock');
+
+// ── the shared clock + state mappings ──
+check(advanceClock(T0, 'ok', T1) === null, "'ok' clears any clock");
+check(advanceClock(null, 'gone', T1) === T1, "'gone' starts the clock now");
+check(advanceClock(T0, 'gone', T1) === T0, "'gone' keeps an existing start");
+check(advanceClock(T0, 'unknown', T1) === T0, "'unknown' holds a running clock");
+check(advanceClock(null, 'unknown', T1) === null, "'unknown' never starts a clock");
+check(dnsState({ resolves: true }) === 'ok', 'DNS resolves → ok');
+check(dnsState({ resolves: false, error: null }) === 'gone', 'DNS clean NXDOMAIN → gone');
+check(dnsState({ resolves: false, error: 'ESERVFAIL' }) === 'unknown', 'DNS transient → unknown');
+
+// ── reachability: resolves-but-dead (the epistery.app case) ──
+check(reachState({ reachable: true, status: 200 }) === 'ok', 'an HTTP 200 is reachable');
+check(reachState({ reachable: true, status: 503 }) === 'ok', 'even a 5xx means a server answered → reachable');
+check(reachState({ reachable: false, code: 'ECONNREFUSED' }) === 'gone', 'a refused connection is a dead service');
+check(reachState({ reachable: null, code: 'AbortError' }) === 'unknown', 'a timeout is don’t-know, never dead');
+check(reachState({ reachable: null, code: 'ECONNRESET' }) === 'unknown', 'a reset is don’t-know, never dead');
 
 // ── grace ──
 const now = new Date('2026-02-01T00:00:00Z');

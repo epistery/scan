@@ -16,13 +16,18 @@ import { probeDns } from '../search/probes/dns.mjs';
  *      recorded in `directives`, so a new ad-hoc flag a domain invents is captured the
  *      moment it appears — it simply does nothing until scan learns to act on it.
  *
- *   2. STALENESS — a result that points at a domain which no longer exists is a
- *      lie about what scan found. So a domain that has not resolved in DNS *for
- *      some time* is cleaned out. "For some time" is the whole of it: we never
- *      drop on one failed lookup, and never on network weather (a SERVFAIL or a
- *      timeout is "don't know", not "gone"). Only a clean, repeated NXDOMAIN past
- *      a grace window delists. This mirrors the deliberate caution in
- *      {AppDirectory} — dropping data must not hinge on one bad moment.
+ *   2. STALENESS — a result that points at a dead domain is a lie about what scan
+ *      found. Two ways a domain goes dead, each on its own sustained clock:
+ *        - it stops RESOLVING in DNS (NXDOMAIN), judged over a long grace; and
+ *        - it resolves but SERVES NOTHING — the connection is flatly refused.
+ *          (A parked A record cannot be removed — GoDaddy just picks another — so
+ *          a retired host like epistery.app resolves forever while its page is
+ *          dead. DNS alone would never catch it; reachability does.)
+ *      "For some time" is the whole of it: we never drop on one failed lookup or
+ *      one refused connection, and never on network weather (a SERVFAIL, a
+ *      timeout, a reset is "don't know", not "gone"). Only a clean failure that
+ *      persists past the grace window delists. This mirrors the deliberate
+ *      caution in {AppDirectory} — dropping data must not hinge on one bad moment.
  *
  * The domain→contract link is DNS: a TXT record at `_epistery.<domain>` whose
  * value is the contract address (the convention DomainContract is bound by). A
@@ -56,6 +61,12 @@ const DOMAIN_ABI = [
 // listable. Compared lowercased and trimmed.
 const SUPPRESS = new Set(['none', 'no', 'off', 'false', '0', 'hidden', 'private', 'never', 'noindex', 'nolist']);
 
+// Connection-level failures that mean "the host resolves but serves nothing" —
+// a refused or unroutable connection, not a slow or flaky one. A timeout, a
+// reset, a TLS error or a DNS error are deliberately NOT here: those are
+// "don't know", and DNS death belongs to the DNS clock.
+const HARD_DEAD = new Set(['ECONNREFUSED', 'EHOSTUNREACH', 'ENETUNREACH']);
+
 const DAY = 86400000;
 
 // ── pure helpers (exported for tests; no DB, no chain, no clock of their own) ──
@@ -76,17 +87,48 @@ export function interpretVisibility(attributes) {
 }
 
 /**
- * Advance, hold, or clear the DNS-unresolved clock from one probe.
- *   - a positive answer (addresses) clears it — the domain is alive;
- *   - a clean negative (resolves=false AND no transport error: NXDOMAIN/ENODATA)
- *     starts it, or leaves an already-running clock where it is;
- *   - a transient failure (error set: SERVFAIL/timeout) is "don't know" — the
- *     clock is left exactly as it was, so network weather never ages a domain out.
+ * Advance, hold, or clear a "gone since" clock from one observation, by state:
+ *   - 'ok'      → cleared (the thing is there);
+ *   - 'gone'    → started now, or an already-running clock left where it is;
+ *   - 'unknown' → left exactly as it was — a "don't know" (network weather, a
+ *                 timeout) must neither start nor clear the clock, so nothing is
+ *                 ever aged out on one bad moment.
+ * One rule, shared by the DNS clock and the reachability clock below.
  */
+export function advanceClock(prevSince, state, now) {
+  if (state === 'ok') return null;
+  if (state === 'gone') return prevSince || now;
+  return prevSince || null; // 'unknown'
+}
+
+/**
+ * A DNS probe → clock state. A positive answer is 'ok'; a clean negative
+ * (resolves=false AND no transport error: NXDOMAIN/ENODATA) is 'gone'; a
+ * transient failure (SERVFAIL/timeout, error set) is 'unknown'.
+ */
+export function dnsState(dnsResult) {
+  if (dnsResult.resolves) return 'ok';
+  if (dnsResult.error) return 'unknown';
+  return 'gone';
+}
+
+/**
+ * A reachability probe → clock state. Any HTTP answer at all (even 4xx/5xx) is
+ * 'ok' — a server is there. A connection flatly refused or unroutable
+ * (ECONNREFUSED/EHOSTUNREACH/ENETUNREACH) is 'gone' — the host resolves but
+ * serves nothing. Everything else (timeout, reset, TLS, a DNS error) is
+ * 'unknown': a blip must not advance this clock, and DNS death is the DNS
+ * clock's to judge, not this one's.
+ */
+export function reachState(reach) {
+  if (reach.reachable === true) return 'ok';
+  if (reach.reachable === false) return 'gone';
+  return 'unknown';
+}
+
+/** Back-compat/DNS convenience: advance the unresolved clock from a DNS probe. */
 export function nextUnresolved(prevSince, dnsResult, now) {
-  if (dnsResult.resolves) return null;
-  if (dnsResult.error) return prevSince || null;
-  return prevSince || now;
+  return advanceClock(prevSince, dnsState(dnsResult), now);
 }
 
 /** Has the unresolved clock run past the grace window? */
@@ -104,6 +146,13 @@ export default class DomainPolicy {
     // and nothing is suppressed on that ground (DNS staleness still applies).
     this.chain = options.chain || (connectors.polygon ? 'polygon' : Object.keys(connectors)[0] || null);
     this.graceMs = options.graceMs || 30 * DAY;
+    // A domain can resolve yet serve nothing — a parked A record that cannot be
+    // removed. A shorter, separate clock for "resolves but dead", measured by
+    // reachability: a connection refused for this many ms of continuous
+    // observation is categorically not a deploy restart (seconds), so 7 days is
+    // far past any restart while still cleaning a dead host out in good time.
+    this.reachGraceMs = options.reachGraceMs || 7 * DAY;
+    this.reachTimeout = options.reachTimeout || 8000;
     this.pollInterval = options.pollInterval || 6 * 3600000; // 6 hours
     this.isRunning = false;
     this.timer = null;
@@ -168,30 +217,58 @@ export default class DomainPolicy {
   }
 
   /**
+   * Is the host serving anything? Any HTTP answer (even an error status) means
+   * yes — a server is there. A refused/unroutable connection means no. A
+   * timeout, reset, TLS error or DNS error is "don't know" (reachable: null):
+   * a blip must not advance the clock, and a DNS failure is the DNS clock's.
+   */
+  async probeReach(domain) {
+    const controller = new AbortController();
+    const t = setTimeout(() => controller.abort(), this.reachTimeout);
+    try {
+      const r = await fetch(`https://${domain}/`, { method: 'GET', redirect: 'manual', signal: controller.signal });
+      return { reachable: true, status: r.status };
+    } catch (e) {
+      const code = e?.cause?.code || e?.code;
+      if (HARD_DEAD.has(code)) return { reachable: false, code };
+      return { reachable: null, code: code || e?.name || 'unknown' };
+    } finally {
+      clearTimeout(t);
+    }
+  }
+
+  /**
    * The verdict for one domain, given its previous `domains` record. Carries the
    * last-known directives forward when this pass could not read the chain, so a
    * transient RPC failure neither invents a directive nor forgets a real one.
    */
   async assess(domain, prev = {}) {
     const now = new Date();
+
     const dnsResult = await probeDns(domain);
-    const unresolvedSince = nextUnresolved(prev.unresolvedSince, dnsResult, now);
-    const stale = staleExpired(unresolvedSince, now, this.graceMs);
+    const unresolvedSince = advanceClock(prev.unresolvedSince, dnsState(dnsResult), now);
+
+    const reach = await this.probeReach(domain);
+    const unreachableSince = advanceClock(prev.unreachableSince, reachState(reach), now);
 
     const read = await this.readDirectives(domain);
     const directives = read ? read.attributes : (prev.directives || null);
     const contract = read ? read.address : (prev.contract || null);
     const { visibility, listable: visListable } = interpretVisibility(directives);
 
+    // Order of reasons: a domain's own declaration first, then DNS death, then a
+    // dead service. Each is a sufficient, independent reason to delist.
     let listable = true, reason = 'listed';
     if (!visListable) { listable = false; reason = 'visibility'; }
-    else if (stale)   { listable = false; reason = 'unresolved'; }
+    else if (staleExpired(unresolvedSince, now, this.graceMs))     { listable = false; reason = 'unresolved'; }
+    else if (staleExpired(unreachableSince, now, this.reachGraceMs)) { listable = false; reason = 'unreachable'; }
 
     return {
       domain, contract, directives, visibility,
-      // keep last-known resolve state across a transient "don't know"
+      // keep last-known state across a transient "don't know"
       resolves: dnsResult.error ? (prev.resolves ?? null) : dnsResult.resolves,
-      unresolvedSince, listable, reason, policyAt: now
+      reachable: reach.reachable === null ? (prev.reachable ?? null) : reach.reachable,
+      unresolvedSince, unreachableSince, listable, reason, policyAt: now
     };
   }
 
@@ -237,6 +314,7 @@ export default class DomainPolicy {
         await this.database.updateDomain(domain, {
           contract: v.contract, directives: v.directives, visibility: v.visibility,
           resolves: v.resolves, unresolvedSince: v.unresolvedSince,
+          reachable: v.reachable, unreachableSince: v.unreachableSince,
           listable: v.listable, listReason: v.reason, policyAt: v.policyAt
         });
         if (!v.listable && wasListable) {
