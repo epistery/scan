@@ -9,7 +9,7 @@
   "scripts": {
     "start": "node index.mjs",
     "dev": "PROFILE=DEV PORT=5080 PORTSSL=5443 node index.mjs",
-    "test": "node test/present.test.mjs"
+    "test": "node test/present.test.mjs && node test/query.test.mjs"
   },
   "dependencies": {
     "@epistery/art": "github:epistery/epistery-art",

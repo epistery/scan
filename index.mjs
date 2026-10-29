@@ -16,6 +16,7 @@ import DiscoveryHandler from './handlers/Discovery.mjs';
 import FeedHandler from './handlers/Feed.mjs';
 import StandingHandler from './handlers/Standing.mjs';
 import McpProxy from './handlers/McpProxy.mjs';
+import QueryHandler from './handlers/Query.mjs';
 import Harness from './lib/Harness.mjs';
 import { wantsJson } from './lib/negotiate.mjs';
 import { allMaps, mapFor, renderSchemaHtml, schemaDefinition } from './lib/SchemaMaps.mjs';
@@ -227,6 +228,7 @@ export default class EpisteryScan {
     const feedHandler = new FeedHandler(this.connector);
     const standingHandler = new StandingHandler(this.connector);
     const mcpProxy = new McpProxy(this.connector, this.harness);
+    const queryHandler = new QueryHandler(this.connector, this.database);
 
     // Link handlers to ingestion
     searchHandler.setIngestion(this.ingestion);
@@ -234,6 +236,7 @@ export default class EpisteryScan {
     fetchHandler.setIngestion(this.ingestion);
     feedHandler.setIngestion(this.ingestion);
     standingHandler.setIngestion(this.ingestion);
+    queryHandler.setIngestion(this.ingestion);
     discoveryHandler.setDomainDiscovery(this.ingestion.domainDiscovery);
 
     // Mount API routes
@@ -245,6 +248,10 @@ export default class EpisteryScan {
     router.use('/api/feed', feedHandler.routes());
     router.use('/api/standing', standingHandler.routes());
     router.use('/api/mcp', mcpProxy.routes());
+    // Bot-facing aggregation surface over the signed-web index. GET it bare for
+    // the usage recipe; POST a pipeline (or ?pipeline=) to query. Safety is owned
+    // by lib/SafeAggregate.mjs; see handlers/Query.mjs.
+    router.use('/api/query', queryHandler.routes());
 
     // Public category maps — how each declared schema is structured for
     // search, display, and trust factors. Sources declare which schemas they
@@ -380,6 +387,7 @@ export default class EpisteryScan {
             stats,
             apis: {
               search: '/api/search?q={query}',
+              query: '/api/query',
               discovery: '/api/discovery',
               feed: '/api/feed',
               mcp: '/api/mcp/categories'
@@ -574,13 +582,14 @@ if (import.meta.url === (await import('url')).pathToFileURL(process.argv[1]).hre
           feed: { available: true, url: '/api/feed' },
           query: {
             available: true,
-            url: '/api/search',
+            url: '/api/query',
             auth: 'none',
-            description: 'Search contracts, transactions, and AI discovery domains'
+            description: 'Run a read-only MongoDB aggregation pipeline over the signed-web index. GET /api/query for the usage recipe (allowed stages, limits, example); POST { pipeline } to query. Results carry present.ai origin facts and locators.'
           }
         },
         apis: {
           search: { url: '/api/search?q={query}', method: 'GET', description: 'Search by address, tx hash, or domain.' },
+          query: { url: '/api/query', methods: ['GET', 'POST'], description: 'Read-only MongoDB aggregation over the signed-web index. GET bare for the usage recipe; POST { pipeline, limit } (or GET ?pipeline=) to query. Allowlisted read stages only; results carry present.ai origin facts and locators.' },
           discovery: { url: '/api/discovery', methods: ['GET', 'POST'], description: 'GET lists indexed domains. POST {domain} to submit a new domain for indexing.' },
           discoveryDetail: { url: '/api/discovery/{domain}', method: 'GET', description: 'Full manifest and crawl state for a specific domain.' },
           events: { url: '/api/events', method: 'GET', description: 'Query blockchain events by entityId, type, chain.' },
