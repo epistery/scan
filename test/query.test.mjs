@@ -40,6 +40,15 @@ let sc = reviewPipeline([{ $sort: { x: 1 } }], { scope: { secret: { $ne: true } 
 check(sc.ok && sc.pipeline.length === 3 && JSON.stringify(sc.pipeline[0]) === JSON.stringify({ $match: { secret: { $ne: true } } }), 'a scope is prepended as the first $match stage, ahead of the caller');
 check(JSON.stringify(reviewPipeline([{ $sort: { x: 1 } }]).pipeline[0]) === JSON.stringify({ $sort: { x: 1 } }), 'with no scope the caller stage stays first');
 
+// scope must never sit AHEAD of a $text stage (Mongo requires $text first), so
+// it folds into the caller's first $match instead of prepending.
+let fold = reviewPipeline([{ $match: { $text: { $search: 'x' } } }, { $group: { _id: null } }], { scope: { $expr: { $eq: [1, 1] } } });
+check(fold.ok && '$text' in fold.pipeline[0].$match && '$expr' in fold.pipeline[0].$match, 'with a $text first stage, scope folds in beside $text so $text stays first');
+let fold2 = reviewPipeline([{ $match: { type: 'Object' } }], { scope: { $expr: { $eq: [1, 1] } } });
+check(fold2.ok && Array.isArray(fold2.pipeline[0].$match.$and) && fold2.pipeline[0].$match.$and.length === 2, 'with a non-$text first $match, scope folds via $and');
+let fold3 = reviewPipeline([{ $sort: { x: 1 } }], { scope: { $expr: { $eq: [1, 1] } } });
+check(fold3.ok && JSON.stringify(fold3.pipeline[0]) === JSON.stringify({ $match: { $expr: { $eq: [1, 1] } } }), 'with a non-$match first stage, scope is prepended as its own $match');
+
 // ── the reviewer: safety (allowlist) ──
 for (const stage of ['$out', '$merge', '$lookup', '$graphLookup', '$unionWith', '$facet', '$collStats', '$indexStats', '$documents', '$changeStream']) {
   check(reviewPipeline([{ [stage]: {} }]).ok === false, `the ${stage} stage is refused`);
@@ -54,6 +63,10 @@ check(reviewPipeline([{ $match: { $where: 'this.x==1' } }]).ok === false, '$wher
 check(reviewPipeline([{ $match: { $expr: { $function: { body: 'f', args: [], lang: 'js' } } } }]).ok === false, '$function hidden inside $expr is refused');
 check(reviewPipeline([{ $group: { _id: null, n: { $accumulator: {} } } }]).ok === false, '$accumulator hidden inside $group is refused');
 check(reviewPipeline([{ $match: { $expr: { $gt: ['$a', 1] } } }]).ok === true, '$expr without a code operator is allowed');
+
+// $text full-text search is allowed — its $search operand is NOT the Atlas stage
+check(reviewPipeline([{ $match: { $text: { $search: 'diesel truck' } } }]).ok === true, '$text full-text query (with its $search operand) is allowed');
+check(reviewPipeline([{ $search: { text: {} } }]).ok === false, 'the Atlas $search STAGE is still refused (not on the allowlist)');
 
 // pathological nesting is refused rather than walked forever
 let deep = { $gt: 1 };
@@ -139,8 +152,10 @@ if (!client) {
   res = fakeRes();
   await handler.routes(); // ensure routes build without throwing
   const usage = handler.usage(fakeReq());
-  check(usage.collection === 'entities' && Array.isArray(usage.rules.allowedStages) && usage.example.pipeline.length === 3,
-    'the usage recipe names the collection, the allowed stages, and a worked example');
+  check(usage.collection === 'entities' && Array.isArray(usage.rules.allowedStages) && Array.isArray(usage.examples) && usage.examples.length === 2,
+    'the usage recipe names the collection, the allowed stages, and worked examples');
+  check(JSON.stringify(usage.examples[0].pipeline).includes('$text') && JSON.stringify(usage.examples[0].pipeline).includes('$group') && !JSON.stringify(usage.examples).includes('Campaign'),
+    'the headline example is the trust-forward $text+$group demo, not a campaign');
   check(usage.how.GET.startsWith('https://epistery.com/scan/api/query?') && usage.how.POST.startsWith('https://epistery.com/scan/api/query'),
     'the recipe advertises the mount-aware URL (/scan/api/query), not a guessed /api/query');
 
@@ -183,6 +198,26 @@ if (!client) {
   res = fakeRes();
   await handler.run(fakeReq(), res, [{ $match: {} }], undefined);
   check(res.code === 503 && /delist/i.test(res.body.reason || ''), 'a delist-set read failure refuses the query (fail closed), not an unfiltered result');
+
+  // ── the demo's aggregation shape: diesel trucks grouped by dealer ──
+  // (The live demo narrows with $text first; here we match the jsonld fields
+  // directly so the test needs no text index, and prove the group/trust shape.)
+  await db.collection('entities').insertMany([
+    { address: 'vehicles:vA', type: 'Object', metadata: { source: { name: 'vehicles', domain: 'cars.rootz.global', url: 'https://cars.rootz.global/v/A' }, object: { type: 'vehicle', jsonld: { bodyType: 'Truck', fuelType: 'Diesel', offers: { seller: { name: 'Warren CAT' } } } } }, _created: new Date(), _modified: new Date(2026, 0, 10) },
+    { address: 'vehicles:vB', type: 'Object', metadata: { source: { name: 'vehicles', domain: 'cars.rootz.global', url: 'https://cars.rootz.global/v/B' }, object: { type: 'vehicle', jsonld: { bodyType: 'Truck', fuelType: 'Diesel', offers: { seller: { name: 'Warren CAT' } } } } }, _created: new Date(), _modified: new Date(2026, 0, 12) },
+    { address: 'vehicles:vC', type: 'Object', metadata: { source: { name: 'vehicles', domain: 'cars.rootz.global', url: 'https://cars.rootz.global/v/C' }, object: { type: 'vehicle', jsonld: { bodyType: 'Truck', fuelType: 'Diesel', offers: { seller: { name: 'Rush Truck' } } } } }, _created: new Date(), _modified: new Date(2026, 0, 11) },
+  ]);
+  unlistable = [];
+  res = fakeRes();
+  await handler.run(fakeReq(), res, [
+    { $match: { 'metadata.object.jsonld.fuelType': 'Diesel', 'metadata.object.jsonld.bodyType': 'Truck' } },
+    { $group: { _id: '$metadata.object.jsonld.offers.seller.name', listings: { $sum: 1 }, freshestSignedAt: { $max: '$_modified' }, origin: { $first: '$metadata.source.domain' }, verifyOne: { $first: '$metadata.source.url' } } },
+    { $sort: { listings: -1 } },
+  ], undefined);
+  const byDealer = Object.fromEntries((res.body.results || []).map(x => [x._id, x]));
+  check(res.code === 200 && byDealer['Warren CAT']?.listings === 2 && byDealer['Rush Truck']?.listings === 1
+    && byDealer['Warren CAT'].origin === 'cars.rootz.global' && /cars\.rootz\.global/.test(byDealer['Warren CAT'].verifyOne || ''),
+    'the demo groups diesel trucks by dealer with a count, the origin domain, and a per-dealer verify locator');
 
   await db.dropDatabase();
   await client.close();

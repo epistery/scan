@@ -107,9 +107,10 @@ export default class QueryHandler {
         accept: 'application/json',
       },
       rules: {
-        readOnly: 'The pipeline may only read. Writes, code execution, cross-collection joins, and server introspection are refused.',
+        readOnly: 'The pipeline may only read. Writes ($out, $merge), cross-collection joins ($lookup, $graphLookup, $unionWith), sub-pipeline fan-out ($facet), server introspection and Atlas search stages are refused — only the allowed stages below run.',
         allowedStages: [...ALLOWED_STAGES],
-        refusedOperators: [...FORBIDDEN_OPERATORS],
+        refusedAnywhere: [...FORBIDDEN_OPERATORS],
+        textSearch: 'A full-text narrow is allowed and fast: `{ $match: { $text: { $search: "diesel truck" } } }` as the FIRST stage rides the index over titles, keywords and summaries. Narrow with $text, then aggregate.',
         limits: {
           maxStages: LIMITS.MAX_STAGES,
           maxResults: LIMITS.MAX_LIMIT,
@@ -132,14 +133,29 @@ export default class QueryHandler {
         shape: 'Rows come back as your pipeline shaped them. A row that is a whole entity also carries `present` — the fixed present.ai envelope with the locator to the live signed origin and the origin facts (schema at /api/schema). Pull the locator and verify the origin yourself (PullOnHit).',
         visibility: 'This is the same index the public search serves, held to the same policy: a domain that has delisted itself (its own VISIBILITY directive) or gone dark is pruned BEFORE your pipeline runs, so it never appears in a row or a $group count. This query surface is the service, not a back door around that.',
       },
-      example: {
-        description: 'Ad campaigns, newest first, with their origin facts.',
-        pipeline: [
-          { $match: { 'metadata.object.type': 'Campaign' } },
-          { $sort: { _modified: -1 } },
-          { $limit: 10 },
-        ],
-      },
+      examples: [
+        {
+          description: 'Which dealers list diesel trucks, how many each, and how fresh their signed inventory is. The point is trust, not the count: a text-indexed narrow, then a group — and every number traces to a signed object you fetch and verify at `verifyOne`, with no aggregator standing in the middle claiming it.',
+          pipeline: [
+            { $match: { $text: { $search: 'diesel truck' } } },
+            { $group: {
+              _id: '$metadata.object.jsonld.offers.seller.name',
+              listings: { $sum: 1 },
+              freshestSignedAt: { $max: '$_modified' },
+              origin: { $first: '$metadata.source.domain' },
+              verifyOne: { $first: '$metadata.source.url' },
+            } },
+            { $sort: { listings: -1 } },
+          ],
+        },
+        {
+          description: 'The listings themselves, freshest signed first — each result carries `present` (the present.ai envelope): a locator to the origin and its origin facts, so you pull and verify each one yourself rather than trusting this index.',
+          pipeline: [
+            { $match: { $text: { $search: 'diesel truck' } } },
+            { $sort: { _modified: -1 } },
+          ],
+        },
+      ],
       pricing: 'Free and unmetered during evaluation. A flat per-query toll drawn on a presented identity is planned once usage shows the surface is worth pricing.',
     };
   }
