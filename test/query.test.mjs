@@ -106,7 +106,7 @@ if (!client) {
 
   // a tiny res double that captures status + json
   const fakeRes = () => { const o = { code: 200, body: null }; o.status = (c) => { o.code = c; return o; }; o.json = (b) => { o.body = b; return o; }; return o; };
-  const fakeReq = (over = {}) => ({ protocol: 'https', get: (h) => ({ host: 'epistery.com' }[h.toLowerCase()] || ''), query: {}, body: {}, app: { locals: {} }, ...over });
+  const fakeReq = (over = {}) => ({ protocol: 'https', get: (h) => ({ host: 'epistery.com' }[h.toLowerCase()] || ''), baseUrl: '/scan/api/query', query: {}, body: {}, app: { locals: {} }, ...over });
 
   // 1. a Campaign query returns both campaigns, each with a present.ai envelope
   let res = fakeRes();
@@ -141,6 +141,8 @@ if (!client) {
   const usage = handler.usage(fakeReq());
   check(usage.collection === 'entities' && Array.isArray(usage.rules.allowedStages) && usage.example.pipeline.length === 3,
     'the usage recipe names the collection, the allowed stages, and a worked example');
+  check(usage.how.GET.startsWith('https://epistery.com/scan/api/query?') && usage.how.POST.startsWith('https://epistery.com/scan/api/query'),
+    'the recipe advertises the mount-aware URL (/scan/api/query), not a guessed /api/query');
 
   // ── policy: a delisted domain is pruned BEFORE the caller's pipeline ──
   // Two rows under a domain that has delisted itself: a signed domain (address IS

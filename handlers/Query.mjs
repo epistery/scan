@@ -92,13 +92,18 @@ export default class QueryHandler {
   // it may use, and a worked example — without reverse-engineering anything.
   usage(req) {
     const origin = `${req.protocol}://${req.get('host')}`;
+    // The endpoint's own public URL, mount-aware: req.baseUrl carries the full
+    // mount prefix, so this is `${origin}/scan/api/query` when scan is mounted
+    // under /scan (the console) and `${origin}/api/query` standalone. A bot
+    // follows this URL verbatim, so it must be the real one, not a guess.
+    const base = `${origin}${req.baseUrl}`;
     return {
       service: 'epistery-scan query',
       summary: 'Run a read-only MongoDB aggregation pipeline over the signed-web index and get back results with their origin facts.',
       collection: 'entities',
       how: {
-        GET: `${origin}/api/query?pipeline=<url-encoded JSON array>&limit=50`,
-        POST: `${origin}/api/query  with JSON body { "pipeline": [ ...stages ], "limit": 50 }`,
+        GET: `${base}?pipeline=<url-encoded JSON array>&limit=50`,
+        POST: `${base}  with JSON body { "pipeline": [ ...stages ], "limit": 50 }`,
         accept: 'application/json',
       },
       rules: {
