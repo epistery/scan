@@ -110,7 +110,7 @@ export default class QueryHandler {
         readOnly: 'The pipeline may only read. Writes ($out, $merge), cross-collection joins ($lookup, $graphLookup, $unionWith), sub-pipeline fan-out ($facet), server introspection and Atlas search stages are refused — only the allowed stages below run.',
         allowedStages: [...ALLOWED_STAGES],
         refusedAnywhere: [...FORBIDDEN_OPERATORS],
-        textSearch: 'A full-text narrow is allowed and fast: `{ $match: { $text: { $search: "diesel truck" } } }` as the FIRST stage rides the index over titles, keywords and summaries. Narrow with $text, then aggregate.',
+        textSearch: 'A full-text narrow is allowed and fast as the FIRST stage: `{ $match: { $text: { $search: "..." } } }` rides the index over titles, keywords and summaries. Plain words are ORed (broad — a following $group over the whole match set can exceed the time budget); wrap a "phrase" in quotes to narrow to an exact match before you aggregate.',
         limits: {
           maxStages: LIMITS.MAX_STAGES,
           maxResults: LIMITS.MAX_LIMIT,
@@ -135,9 +135,9 @@ export default class QueryHandler {
       },
       examples: [
         {
-          description: 'Which dealers list diesel trucks, how many each, and how fresh their signed inventory is. The point is trust, not the count: a text-indexed narrow, then a group — and every number traces to a signed object you fetch and verify at `verifyOne`, with no aggregator standing in the middle claiming it.',
+          description: 'Which dealers list a given truck model, how many each, and how fresh their signed inventory is. The point is trust, not the count: narrow with a PHRASE ("Ford F-750" — quoted, so the text index returns an exact match instead of OR-ing the words across the whole index), then group — and every number traces to a signed object you fetch and verify at `verifyOne`, with no aggregator standing in the middle claiming it.',
           pipeline: [
-            { $match: { $text: { $search: 'diesel truck' } } },
+            { $match: { $text: { $search: '"Ford F-750"' } } },
             { $group: {
               _id: '$metadata.object.jsonld.offers.seller.name',
               listings: { $sum: 1 },
@@ -149,10 +149,10 @@ export default class QueryHandler {
           ],
         },
         {
-          description: 'The listings themselves, freshest signed first — each result carries `present` (the present.ai envelope): a locator to the origin and its origin facts, so you pull and verify each one yourself rather than trusting this index.',
+          description: 'The listings themselves — each result carries `present` (the present.ai envelope): a locator to the dealer\'s own page and the origin facts. Note rung is often "open" here — these are harvested, not yet signed by the dealer, and scan does not overclaim; the locator is how you verify at the source.',
           pipeline: [
-            { $match: { $text: { $search: 'diesel truck' } } },
-            { $sort: { _modified: -1 } },
+            { $match: { $text: { $search: '"Ford F-750"' } } },
+            { $limit: 10 },
           ],
         },
       ],
